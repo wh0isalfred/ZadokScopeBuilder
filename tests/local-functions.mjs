@@ -1,11 +1,13 @@
-﻿import assert from 'node:assert/strict';
-const base='http://localhost:8888';
+import assert from 'node:assert/strict';
+const base=process.env.TEST_BASE_URL || 'http://localhost:8888';
 const headers={origin:base,'content-type':'application/json'};
 const unauthorized=await fetch(`${base}/api/submit-scope`,{method:'POST',headers,body:'{}'});assert.equal(unauthorized.status,401);
 const auth=await fetch(`${base}/api/auth`,{method:'POST',headers,body:JSON.stringify({code:'local-test-code'})});assert.equal(auth.status,200);
 headers.cookie=auth.headers.get('set-cookie').split(';')[0];
-const cfg=await (await fetch(`${base}/api/scope-config`,{headers})).json();headers['x-submission-token']=cfg.submissionToken;
+
 const response=await fetch(`${base}/api/submit-scope`,{method:'POST',headers,body:JSON.stringify({selectedIds:['unknown'],name:'Test User',role:'Manager',email:'test@example.com',confirm:true,website:''})});assert.equal(response.status,422);
 const denied=await fetch(`${base}/api/submit-scope`,{method:'POST',headers:{...headers,origin:'https://other.example'},body:'{}'});assert.equal(denied.status,403);
 for(const path of ['/netlify/functions/lib/catalog.mjs','/.env','/package.json'])assert.equal((await fetch(base+path)).status,404);
-console.log('PASS actual Netlify submit Function: unauthenticated 401, invalid IDs 422, wrong origin 403; three private paths 404. No email request made.');
+console.log('PASS actual Netlify submit Function: unauthenticated 401, invalid IDs 422, wrong origin 403; three private paths 404. No outbound delivery request made.');
+
+const valid=await fetch(`${base}/api/submit-scope`,{method:'POST',headers,body:JSON.stringify({selectedIds:['basket'],name:'Test User',role:'Manager',email:'test@example.com',confirm:true,website:'',total:1})});assert.equal(valid.status,200);const quote=await valid.json();assert.equal(quote.total,240000);assert.equal(quote.validityDays,30);assert.ok(quote.whatsapp.url.startsWith('https://wa.me/'));console.log('PASS actual Netlify quotation and WhatsApp response, no outbound delivery.');

@@ -2,12 +2,12 @@ import { calculate, resolveSelection, removalImpact } from '/shared/dependencies
 const $ = selector => document.querySelector(selector);
 const money = amount => new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 }).format(amount);
 const STORAGE = 'zadok-scope-draft-2026-09-v1';
-let catalog = [], explicit = [], token = '', pending = null, busy = false, storageWarning = false, confirmAction;
+let catalog = [], explicit = [], busy = false, storageWarning = false, confirmAction;
 const node = (tag, text, className) => { const element = document.createElement(tag); if (text !== undefined) element.textContent = text; if (className) element.className = className; return element; };
 function announce(message) { $('#announcement').textContent = message; clearTimeout(announce.timer); announce.timer = setTimeout(() => $('#announcement').textContent = '', 9000); }
 function details() { return Object.fromEntries(['name','role','email','note'].map(key => [key, $(`#${key}`).value])); }
 function saveDraft() {
-  try { localStorage.setItem(STORAGE, JSON.stringify({ explicit, details:details(), pending })); }
+  try { localStorage.setItem(STORAGE, JSON.stringify({ explicit, details:details() })); }
   catch { if (!storageWarning) announce('This browser cannot save your draft. Keep this tab open until you finish.'); storageWarning = true; }
 }
 function restoreDraft() {
@@ -17,9 +17,8 @@ function restoreDraft() {
     explicit = Array.isArray(draft.explicit) ? [...new Set(draft.explicit.filter(id => catalog.some(item => item.id === id && item.category !== 'foundation')))] : [];
     resolveSelection(explicit, catalog);
     for (const [key, value] of Object.entries(draft.details || {})) if (['name','role','email','note'].includes(key) && typeof value === 'string') $(`#${key}`).value = value;
-    if (draft.pending?.body && typeof draft.pending.token === 'string') pending = draft.pending;
     announce('Your saved draft has been restored.');
-  } catch { announce('The saved draft could not be restored. A fresh selection is ready.'); explicit = []; pending = null; }
+  } catch { announce('The saved draft could not be restored. A fresh selection is ready.'); explicit = []; }
 }
 async function api(path, options = {}) {
   let response;
@@ -30,7 +29,7 @@ async function api(path, options = {}) {
   return data;
 }
 function validConfig(data) {
-  if (!data || !Array.isArray(data.catalog) || data.catalog.length < 1 || typeof data.submissionToken !== 'string') return false;
+  if (!data || !Array.isArray(data.catalog) || data.catalog.length < 1) return false;
   const ids = new Set();
   for (const item of data.catalog) {
     if (!item || typeof item.id !== 'string' || ids.has(item.id) || typeof item.title !== 'string' || !Number.isSafeInteger(item.price) || item.price < 0 || !['foundation','launch','addition'].includes(item.category) || !Array.isArray(item.dependencies) || !Array.isArray(item.inclusions) || item.inclusions.some(x => typeof x !== 'string') || typeof item.value !== 'string' || typeof item.warning !== 'string') return false;
@@ -45,7 +44,7 @@ async function loadConfig(initial = false) {
   try {
     const data = await api('scope-config');
     if (!validConfig(data)) throw new Error('The proposal configuration is incomplete. Please retry loading it.');
-    catalog = data.catalog; token = data.submissionToken;
+    catalog = data.catalog;
     restoreDraft(); renderModules(); update();
     $('#access').hidden = true; $('#proposal').hidden = false; $('#access-status').textContent = '';
     $('#proposal-title').focus();
@@ -114,7 +113,6 @@ function ask(message, action, title = 'Change your selection?') { confirmAction 
 $('#cancel-change').addEventListener('click', () => $('#confirm-dialog').close());
 $('#confirm-change').addEventListener('click', () => { $('#confirm-dialog').close(); confirmAction?.(); });
 function changeSelection(id, checked) {
-  if (pending) { update(); announce('A submission has an uncertain delivery status. Retry it from Review before changing this selection.'); return; }
   const before = calculate(explicit,catalog).selectedIds;
   if (checked) {
     explicit.push(id); const added = resolveSelection(explicit,catalog).filter(value => !before.includes(value) && value !== id);
@@ -127,20 +125,18 @@ function changeSelection(id, checked) {
   }
 }
 $('#clear-draft').addEventListener('click', () => {
-  const message = pending ? 'Delivery of your previous attempt is uncertain. Check with the project team before clearing it, as a new submission could duplicate one already received. Clear the draft and its retry information?' : 'This removes your optional selections and respondent details from this browser. The required foundation stays included.';
-  ask(message, () => { pending = null; explicit = []; $('#submit-form').reset(); update(); announce('Draft cleared.'); },'Clear your draft?');
+  ask('This removes your optional selections and respondent details from this browser. The required foundation stays included.', () => { explicit = []; $('#submit-form').reset(); update(); announce('Draft cleared.'); },'Clear your draft?');
 });
 async function openReview() {
   summaryInto($('#review-summary'),calculate(explicit,catalog));
-  $('#review-authority').textContent = 'Checking the selection with the server…'; $('#validation-summary').hidden = true; $('#submission-status').textContent = pending ? 'A previous attempt has uncertain delivery status. Retry the same submission safely.' : '';
-  $('#respondent-fields').disabled = Boolean(pending); $('#submit-button').disabled = true;
+  $('#review-authority').textContent = 'Checking the selection with the server…'; $('#validation-summary').hidden = true; $('#submission-status').textContent = '';
+  $('#respondent-fields').disabled = false; $('#submit-button').disabled = true;
   $('#review-dialog').showModal(); $('#review-title').focus();
   try {
-    if (pending) { token = pending.token; $('#review-authority').textContent = 'The unchanged submission will be validated again by the server.'; }
-    else {
+    {
       const result = await api('scope-config', { method:'POST', body:JSON.stringify({ selectedIds:explicit }) });
-      if (!Number.isSafeInteger(result.total) || !Array.isArray(result.modules) || typeof result.submissionToken !== 'string') throw new Error('The review response could not be read. Close and reopen Review to retry.');
-      token = result.submissionToken; summaryInto($('#review-summary'),result);
+      if (!Number.isSafeInteger(result.total) || !Array.isArray(result.modules)) throw new Error('The review response could not be read. Close and reopen Review to retry.');
+      summaryInto($('#review-summary'),result);
       $('#review-authority').textContent = 'Server-validated selection and provisional quotation total. Required dependencies are included.';
     }
     $('#submit-button').disabled = false;
@@ -170,30 +166,34 @@ $('#submit-form').addEventListener('submit', async event => {
   event.preventDefault(); if (busy) return;
   $('#validation-summary').hidden = true; document.querySelectorAll('[aria-invalid]').forEach(input => input.removeAttribute('aria-invalid'));
   const fields = {};
-  if (!pending) for (const input of $('#respondent-fields').querySelectorAll('input,textarea')) if (!input.validity.valid || (input.required && input.type !== 'checkbox' && input.value.trim().length < (input.minLength > 0 ? input.minLength : 1))) fields[input.id] = input.type === 'checkbox' ? 'Confirm that this selection should be submitted for review.' : `Check ${input.labels[0].textContent.toLowerCase()}.`;
+  for (const input of $('#respondent-fields').querySelectorAll('input,textarea')) if (!input.validity.valid || (input.required && input.type !== 'checkbox' && input.value.trim().length < (input.minLength > 0 ? input.minLength : 1))) fields[input.id] = input.type === 'checkbox' ? 'Confirm that this selection should be submitted for review.' : `Check ${input.labels[0].textContent.toLowerCase()}.`;
   if (Object.keys(fields).length) { showValidation(fields); return; }
-  busy = true; $('#submit-button').disabled = true; $('#respondent-fields').disabled = true; $('.close-dialog').disabled = true; $('#submission-status').textContent = 'Submitting your selection for review…';
+  busy = true; $('#submit-button').disabled = true; $('#respondent-fields').disabled = true; $('.close-dialog').disabled = true; $('#submission-status').textContent = 'Validating your selection and preparing the quotation…';
   try {
-    if (!pending) {
-      const prepared = await api('scope-config', { method:'POST', body:JSON.stringify({ selectedIds:explicit }) });
-      if (typeof prepared.submissionToken !== 'string') throw new Error('The submission could not be prepared. Please retry.');
-      pending = { token:prepared.submissionToken, body:{ selectedIds:explicit, ...details(), confirm:$('#confirm').checked, website:$('#website').value } };
-      saveDraft();
-    }
-    const result = await api('submit-scope',{ method:'POST', headers:{ 'X-Submission-Token':pending.token }, body:JSON.stringify(pending.body) });
-    if (typeof result.reference !== 'string' || !Array.isArray(result.modules) || !Number.isSafeInteger(result.total)) throw new Error('The submission response could not be confirmed. Retry the unchanged selection.');
-    pending = null; try { localStorage.removeItem(STORAGE); } catch { announce('Submitted successfully, but browser storage could not be cleared.'); }
+    const result = await api('submit-scope',{ method:'POST', body:JSON.stringify({ selectedIds:explicit, ...details(), confirm:$('#confirm').checked, website:$('#website').value }) });
+    if (typeof result.reference !== 'string' || !Array.isArray(result.modules) || !Array.isArray(result.unselectedModules) || !Number.isSafeInteger(result.total) || !Number.isInteger(result.validityDays) || !Number.isFinite(Date.parse(result.validUntil)) || typeof result.whatsapp?.message !== 'string' || !/^https:\/\/wa\.me\/[1-9]\d{7,14}\?text=/.test(result.whatsapp?.url || '')) throw new Error('The quotation response could not be confirmed. Your draft is preserved; please retry.');
+    try { localStorage.removeItem(STORAGE); } catch { announce('Quotation generated, but browser storage could not be cleared.'); }
     $('#review-dialog').close(); $('#proposal').hidden = true; $('#success').hidden = false;
-    const receipt = $('#receipt'); receipt.replaceChildren(node('p',`Reference: ${result.reference}`),node('p',`Recorded (UTC): ${result.timestamp}`),node('p',`${result.respondent.name} · ${result.respondent.role} · ${result.respondent.email}`));
+    const receipt = $('#receipt'); receipt.replaceChildren(node('p',`Reference: ${result.reference}`),node('p',`Submitted (UTC): ${result.timestamp}`),node('p',`Valid for ${result.validityDays} days, until ${new Date(result.validUntil).toLocaleDateString('en-GB', {day:'numeric',month:'long',year:'numeric',timeZone:'UTC'})} (UTC).`),node('p',`${result.respondent.name} · ${result.respondent.role} · ${result.respondent.email}`));
     const selection = node('div'); summaryInto(selection,result); receipt.append(selection);
     if (result.respondent.note) receipt.append(node('p',`Your note: ${result.respondent.note}`));
-    receipt.append(node('p',result.confirmationSent ? 'A confirmation email has been accepted for delivery to your email address.' : 'Your selection was received, but your confirmation email could not be sent. Please keep this reference.','small')); $('#success-title').focus();
+    const exclusions = node('section',undefined,'quote-exclusions'); exclusions.append(node('h3','Optional modules not selected'));
+    for (const [category,title] of [['launch','Launch modules'],['addition','Possible additions']]) {
+      const omitted = result.unselectedModules.filter(item => item.category === category);
+      exclusions.append(node('h4',title));
+      const list = node('ul'); omitted.forEach(item => list.append(node('li',item.title)));
+      exclusions.append(omitted.length ? list : node('p','None; all modules in this category are selected.'));
+    }
+    receipt.append(exclusions,node('p','This scope and project fee are subject to final written agreement. No payment has been made.','small'));
+    // The server constructs this link from its own recalculated quotation, never the preview.
+    $('#whatsapp').href = result.whatsapp.url;
+    $('#success-title').focus();
   } catch(error) {
     $('#submission-status').textContent = error.message;
-    if (['VALIDATION_ERROR','EMAIL_NOT_CONFIGURED'].includes(error.code)) { pending = null; $('#respondent-fields').disabled = false; saveDraft(); }
+    saveDraft();
     if (error.fields) showValidation(error.fields);
     if (error.code === 'SESSION_EXPIRED') expire(error.message);
-  } finally { if (!pending) $('#respondent-fields').disabled = false; busy = false; $('#submit-button').disabled = false; $('.close-dialog').disabled = false; }
+  } finally { $('#respondent-fields').disabled = false; busy = false; $('#submit-button').disabled = false; $('.close-dialog').disabled = false; }
 });
 $('#print').addEventListener('click',() => window.print());
 loadConfig(true);

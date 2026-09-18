@@ -1,4 +1,4 @@
-﻿import { createHmac, timingSafeEqual, createHash, randomBytes } from 'node:crypto';
+import { createHmac, timingSafeEqual, createHash, randomBytes } from 'node:crypto';
 export const SESSION_SECONDS = 14400;
 function secret() {
   const value = process.env.SCOPE_SESSION_SECRET;
@@ -29,7 +29,3 @@ export function readSession(request) {
   return cookies.length === 1 ? verify(cookies[0].slice(14), 'session') : null;
 }
 export function cookie(token) { return `zadok_session=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${SESSION_SECONDS}`; }
-export function issueSubmission(now = Date.now()) {
-  const reference = `ZF-${new Date(now).toISOString().slice(0,10).replaceAll('-', '')}-${randomBytes(8).toString('hex').toUpperCase()}`;
-  return sign({ kind: 'submission', reference, iat: now, exp: now + SESSION_SECONDS * 1000 });
-}
