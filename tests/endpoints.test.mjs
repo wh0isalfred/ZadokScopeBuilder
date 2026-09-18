@@ -1,0 +1,20 @@
+﻿import { beforeEach, afterEach, it, expect, vi } from 'vitest';
+import auth from '../netlify/functions/auth.mjs';
+import config from '../netlify/functions/scope-config.mjs';
+import submit from '../netlify/functions/submit-scope.mjs';
+import { issueSession, issueSubmission } from '../netlify/functions/lib/session.mjs';
+const url='https://scope.example.com';
+function request(path,body,extra={}){return new Request(`${url}/${path}`,{method:body?'POST':'GET',headers:{origin:url,'content-type':'application/json',cookie:`zadok_session=${issueSession()}`,'x-submission-token':issueSubmission(),...extra},...(body?{body:JSON.stringify(body)}:{})});}
+const data={name:'<Ada Example>',role:'Manager',email:'ada@example.com',note:'<script>alert(1)</script>',confirm:true,website:'',selectedIds:['basket'],total:1};
+beforeEach(()=>{Object.assign(process.env,{SCOPE_SESSION_SECRET:'test-secret-with-at-least-32-characters',SCOPE_ACCESS_CODE:'local-test-code',SITE_ORIGIN:url,RESEND_API_KEY:'test-key',RESEND_FROM_EMAIL:'scope@example.com',QUOTE_RECIPIENT_EMAIL:'team@example.com',QUOTE_CC_EMAIL:''});});
+afterEach(()=>vi.unstubAllGlobals());
+it('never exposes configuration unauthenticated',async()=>expect((await config(new Request(url))).status).toBe(401));
+it('auth rejects bad origin and incorrect code',async()=>{expect((await auth(request('auth',{code:'bad'},{origin:'https://evil.example'}))).status).toBe(403);expect((await auth(request('auth',{code:'bad'}))).status).toBe(401);});
+it('auth issues secure cookie for correct code',async()=>expect((await auth(request('auth',{code:'local-test-code'}))).headers.get('set-cookie')).toContain('HttpOnly; Secure; SameSite=Strict'));
+it('review recalculates authoritative total',async()=>{const response=await config(request('scope-config',{selectedIds:['basket'],total:0}));expect((await response.json()).total).toBe(240000);});
+it('submits authoritative escaped summaries without trusting recipient',async()=>{const fetch=vi.fn().mockResolvedValue(new Response('{}'));vi.stubGlobal('fetch',fetch);const response=await submit(request('submit',{...data,to:'attacker@example.com'}));const summary=await response.json();expect(response.status).toBe(200);expect(summary.total).toBe(240000);expect(fetch).toHaveBeenCalledTimes(2);const payload=JSON.parse(fetch.mock.calls[0][1].body);expect(payload.to).toEqual(['team@example.com']);expect(payload.cc).toBeUndefined();expect(payload.html).not.toContain('<script>');expect(payload.text).toContain('not proof of payment');});
+it('uses stable retry idempotency keys and payloads',async()=>{const fetch=vi.fn().mockResolvedValue(new Response('{}'));vi.stubGlobal('fetch',fetch);const req=request('submit',data);await submit(req.clone());await submit(req.clone());expect(fetch.mock.calls[0][1].headers['Idempotency-Key']).toBe(fetch.mock.calls[2][1].headers['Idempotency-Key']);expect(fetch.mock.calls[0][1].body).toBe(fetch.mock.calls[2][1].body);});
+it('internal provider failure is not success',async()=>{vi.stubGlobal('fetch',vi.fn().mockResolvedValue(new Response('{}',{status:500})));const response=await submit(request('submit',data));expect(response.status).toBe(502);expect((await response.json()).error.code).toBe('EMAIL_PROVIDER_ERROR');});
+it('respondent email failure preserves internal success',async()=>{vi.stubGlobal('fetch',vi.fn().mockResolvedValueOnce(new Response('{}')).mockRejectedValueOnce(new Error()));const response=await submit(request('submit',data));expect(response.status).toBe(200);expect((await response.json()).confirmationSent).toBe(false);});
+it('rejects expired review token',async()=>expect((await submit(request('submit',data,{'x-submission-token':issueSubmission(0)}))).status).toBe(409));
+it('rejects malformed JSON',async()=>{const req=new Request(url,{method:'POST',headers:{origin:url,'content-type':'application/json'},body:'{'});expect((await auth(req)).status).toBe(400);});

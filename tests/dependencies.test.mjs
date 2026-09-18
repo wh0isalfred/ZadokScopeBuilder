@@ -1,0 +1,10 @@
+﻿import { it, expect } from 'vitest';
+import { catalog } from '../netlify/functions/lib/catalog.mjs';
+import { resolveSelection, removalImpact } from '../shared/dependencies.mjs';
+it('adds direct dependencies',()=>expect(resolveSelection(['basket'],catalog)).toEqual(['foundation','catalogue','basket']));
+it('adds transitive dependencies',()=>expect(resolveSelection(['payments'],catalog)).toEqual(['foundation','catalogue','basket','records','staff','payments']));
+it('removal impact includes selected transitive dependents',()=>expect(removalImpact('catalogue',['payments','training'],catalog)).toEqual(['catalogue','basket','records','payments']));
+it('foundation cannot be removed',()=>expect(removalImpact('foundation',['payments'],catalog)).toEqual([]));
+it('keeps unrelated selections outside removal impact',()=>expect(removalImpact('basket',['payments','training'],catalog)).not.toContain('training'));
+it('rejects a cycle',()=>expect(()=>resolveSelection(['a'],[{id:'a',dependencies:['b']},{id:'b',dependencies:['a']}])).toThrow('Circular'));
+it('does not force unselected operational modules for overview',()=>expect(resolveSelection(['overview'],catalog)).not.toContain('inventory'));

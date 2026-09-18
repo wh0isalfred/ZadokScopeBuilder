@@ -1,0 +1,55 @@
+import { chromium } from 'playwright';
+import { mkdir, writeFile } from 'node:fs/promises';
+import assert from 'node:assert/strict';
+const browser = await chromium.launch({channel:'msedge',headless:true});
+const context = await browser.newContext({baseURL:"http://localhost:8888"});
+const page = await context.newPage();
+const errors=[];page.on('pageerror',error=>errors.push(error.message));
+const results=[];
+const check=(name)=>{results.push(name);console.log(`PASS ${name}`);};
+await mkdir('artifacts',{recursive:true});
+await page.goto('http://localhost:8888');
+await page.waitForTimeout(600);
+await page.screenshot({path:'artifacts/access-desktop.png',fullPage:true});
+assert.equal((await page.request.get('/api/scope-config')).status(),401);
+assert.equal((await page.request.get('/netlify/functions/lib/catalog.mjs')).status(),404);
+check('unauthenticated catalogue and server source protected');
+await page.locator('#access-code').fill('incorrect');await page.locator('#unlock-button').click();await page.getByText('The access code is incorrect. Please try again.').waitFor();check('incorrect access code');
+await page.locator('#access-code').fill('local-test-code');await page.locator('#unlock-button').click();await page.locator('#proposal').waitFor({state:'visible'});check('unlock through real Netlify Function');
+for(const width of [360,390,768,1024,1440]){
+ await page.setViewportSize({width,height:960});
+ assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),`overflow at ${width}`);
+ await page.screenshot({path:`artifacts/proposal-${width}.png`,fullPage:true});check(`responsive ${width}px without overflow`);
+}
+await page.locator('#select-payments').check();
+for(const id of ['catalogue','basket','records','staff','payments'])assert.equal(await page.locator(`#select-${id}`).isChecked(),true);
+check('transitive automatic dependencies');
+await page.locator('#select-catalogue').click();await page.locator('#confirm-dialog').waitFor({state:'visible'});await page.locator('#cancel-change').click();assert.equal(await page.locator('#select-payments').isChecked(),true);check('dependency removal cancelled');
+await page.locator('#select-catalogue').click();await page.locator('#confirm-change').click();assert.equal(await page.locator('#select-payments').isChecked(),false);check('dependency removal confirmed');
+await page.locator('#select-training').check();await page.reload();await page.locator('#proposal').waitFor({state:'visible'});assert.equal(await page.locator('#select-training').isChecked(),true);assert.equal(await page.locator('#select-staff').isChecked(),true);check('draft restored with dependencies');
+await page.locator('#select-accounting').check();assert.ok((await page.locator('#desktop-summary').innerText()).includes('provisional'));check('provisional amount labelled');
+await page.locator('.summary-panel .review-button').click();await page.locator('#submit-button').waitFor({state:'visible'});await page.waitForFunction(()=>!document.querySelector('#submit-button').disabled);
+assert.ok((await page.locator('#review-authority').innerText()).includes('Server-validated'));check('server authoritative review');
+for(let i=0;i<18;i++){await page.keyboard.press('Tab');assert.equal(await page.evaluate(()=>document.querySelector('#review-dialog').contains(document.activeElement)),true);}check('keyboard focus stays within review');
+await page.keyboard.press('Escape');assert.equal(await page.locator('#review-dialog').isVisible(),false);assert.equal(await page.locator('.summary-panel .review-button').evaluate(el=>el===document.activeElement),true);check('Escape closes and restores focus');
+await page.setViewportSize({width:390,height:844});await page.locator('.mobile-summary .review-button').click();await page.waitForFunction(()=>!document.querySelector('#submit-button').disabled);assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));check('mobile review sheet');await page.locator('#submit-button').click();await page.locator('#validation-summary').waitFor({state:'visible'});check('accessible form validation');
+await page.locator('#name').fill('Ada Example');await page.locator('#role').fill('Management');await page.locator('#email').fill('ada@example.com');await page.locator('#note').fill('A browser verification only.');await page.locator('#confirm').check();
+await page.route('**/api/submit-scope',route=>route.fulfill({status:502,contentType:'application/json',body:JSON.stringify({error:{code:'EMAIL_PROVIDER_ERROR',message:'Delivery could not be confirmed. Keep this selection unchanged and retry safely.'}})}));
+await page.locator('#submit-button').click();await page.getByText('Delivery could not be confirmed. Keep this selection unchanged and retry safely.').waitFor();assert.ok(await page.evaluate(()=>localStorage.getItem('zadok-scope-draft-2026-09-v1')));check('intercepted failure preserves unchanged retry draft');
+await page.unroute('**/api/submit-scope');
+await page.route('**/api/submit-scope',route=>route.fulfill({status:401,contentType:'application/json',body:JSON.stringify({error:{code:'SESSION_EXPIRED',message:'Your session expired. Unlock again.'}})}));
+await page.locator('#submit-button').click();await page.locator('#access').waitFor({state:'visible'});await page.locator('#access-code').fill('local-test-code');await page.locator('#unlock-button').click();await page.locator('#proposal').waitFor({state:'visible'});await page.locator('.mobile-summary .review-button').click();await page.waitForFunction(()=>!document.querySelector('#submit-button').disabled);assert.equal(await page.locator('#name').inputValue(),'Ada Example');check('expired session preserves pending submission through reauthentication');
+await page.unroute('**/api/submit-scope');
+const {catalog}=await import('../netlify/functions/lib/catalog.mjs');const {calculate}=await import('../shared/dependencies.mjs');
+await page.route('**/api/submit-scope',async route=>{const data=route.request().postDataJSON();await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({...calculate(data.selectedIds,catalog),respondent:{name:data.name,role:data.role,email:data.email,note:data.note},reference:'ZF-20260918-1234567890ABCDEF',timestamp:new Date().toISOString(),confirmationSent:true})});});
+await page.locator('#submit-button').click();await page.locator('#success').waitFor({state:'visible'});assert.equal(await page.evaluate(()=>localStorage.getItem('zadok-scope-draft-2026-09-v1')),null);check('intercepted success and draft clearing');
+await page.setViewportSize({width:1024,height:1000});await page.emulateMedia({media:'print'});await page.screenshot({path:'artifacts/print-layout.png',fullPage:true});await page.pdf({path:'artifacts/submission-summary.pdf',format:'A4',printBackground:true});assert.equal(await page.locator('#print').isVisible(),false);check('print layout and PDF generation');
+const failurePage=await context.newPage();
+await failurePage.route('**/api/scope-config',route=>route.fulfill({status:200,contentType:'application/json',body:'{"catalog":[]}' }));
+await failurePage.goto('http://localhost:8888');await failurePage.getByText('The proposal configuration is incomplete. Please retry loading it.').waitFor();assert.equal(await failurePage.locator('#retry-config').isVisible(),true);check('malformed configuration offers retry');
+await failurePage.unroute('**/api/scope-config');await failurePage.locator('#retry-config').click();await failurePage.locator('#proposal').waitFor({state:'visible'});check('configuration retry recovers');await failurePage.close();
+assert.deepEqual(errors,[]);check('no browser runtime errors');
+await writeFile('artifacts/browser-results.json',JSON.stringify({checks:results.length,results,errors},null,2));
+await browser.close();
+
+

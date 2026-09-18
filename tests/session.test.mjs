@@ -1,0 +1,12 @@
+﻿import { beforeEach, it, expect } from 'vitest';
+import { issueSession, verify, readSession, cookie, issueSubmission, safeEqual } from '../netlify/functions/lib/session.mjs';
+beforeEach(()=>{process.env.SCOPE_SESSION_SECRET='test-secret-with-at-least-32-characters';});
+it('signs and verifies sessions',()=>expect(verify(issueSession(1000),'session',1001)).toMatchObject({kind:'session'}));
+it('expires at four hours',()=>expect(verify(issueSession(1000),'session',14401000)).toBeNull());
+it('rejects altered signatures',()=>expect(verify(issueSession()+'x','session')).toBeNull());
+it('rejects malformed cookies',()=>{for(const value of ['','zadok_session=%bad','zadok_session=a.b.c','zadok_session=undefined'])expect(readSession(new Request('https://example.com',{headers:{cookie:value}}))).toBeNull();});
+it('rejects duplicate cookies',()=>{const value=issueSession();expect(readSession(new Request('https://example.com',{headers:{cookie:`zadok_session=${value}; zadok_session=${value}`}}))).toBeNull();});
+it('sets all required cookie flags',()=>{const value=cookie(issueSession());for(const flag of ['HttpOnly','Secure','SameSite=Strict','Max-Age=14400'])expect(value).toContain(flag);});
+it('creates collision resistant readable references',()=>{const a=verify(issueSubmission(),'submission');const b=verify(issueSubmission(),'submission');expect(a.reference).toMatch(/^ZF-\d{8}-[A-F0-9]{16}$/);expect(a.reference).not.toBe(b.reference);});
+it('separates token purposes',()=>expect(verify(issueSession(),'submission')).toBeNull());
+it('compares codes safely across different lengths',()=>{expect(safeEqual('a','longer')).toBe(false);expect(safeEqual('same','same')).toBe(true);});
