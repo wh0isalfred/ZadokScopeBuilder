@@ -2,7 +2,7 @@ export const catalog = [
   {
     "id": "foundation",
     "title": "Digital foundation and public website",
-    "price": 145000,
+    "price": 112000,
     "category": "foundation",
     "dependencies": [],
     "inclusions": [
