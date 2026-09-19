@@ -31,7 +31,7 @@ export const catalog = [
   {
     "id": "catalogue",
     "title": "Produce catalogue management",
-    "price": 45000,
+    "price": 25000,
     "category": "launch",
     "dependencies": [
       "foundation"
@@ -53,7 +53,7 @@ export const catalog = [
   {
     "id": "basket",
     "title": "Basket and WhatsApp order requests",
-    "price": 50000,
+    "price": 30000,
     "category": "launch",
     "dependencies": [
       "catalogue"
@@ -75,7 +75,7 @@ export const catalog = [
   {
     "id": "records",
     "title": "Customer and order records",
-    "price": 35000,
+    "price": 20000,
     "category": "launch",
     "dependencies": [
       "basket",
@@ -99,7 +99,7 @@ export const catalog = [
   {
     "id": "staff",
     "title": "Staff portal and access control",
-    "price": 55000,
+    "price": 30000,
     "category": "launch",
     "dependencies": [
       "foundation"
@@ -121,7 +121,7 @@ export const catalog = [
   {
     "id": "inventory",
     "title": "Inventory and harvest operations",
-    "price": 55000,
+    "price": 35000,
     "category": "launch",
     "dependencies": [
       "catalogue",
@@ -147,7 +147,7 @@ export const catalog = [
   {
     "id": "training",
     "title": "Training programmes and applications",
-    "price": 40000,
+    "price": 25000,
     "category": "launch",
     "dependencies": [
       "staff"
@@ -171,7 +171,7 @@ export const catalog = [
   {
     "id": "enquiries",
     "title": "Greenhouse and consulting enquiries",
-    "price": 20000,
+    "price": 15000,
     "category": "launch",
     "dependencies": [
       "staff"
@@ -194,7 +194,7 @@ export const catalog = [
   {
     "id": "overview",
     "title": "Operational overview and exports",
-    "price": 15000,
+    "price": 8000,
     "category": "launch",
     "dependencies": [
       "records"
@@ -346,7 +346,7 @@ export const catalog = [
     "provisional": false
   }
 ];
-export const catalogVersion = "2026-09-v1";
+export const catalogVersion = "2026-09-v2";
 
 // Recurring services are deliberately outside the one-time module catalogue.
 export const ongoingCare = {
