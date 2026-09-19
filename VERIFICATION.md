@@ -1,29 +1,38 @@
-﻿# Local verification record
+# Verification: Select scope → Review quotation → Share PDF
 
-Updated 18 September 2026 for server-generated quotations and manual WhatsApp sharing. This implementation does not perform email delivery or use a database, paid messaging service or custom domain. No commit, push, deployment or WhatsApp send was performed during this revision.
+Verified 19 September 2026. No commit, push, deployment, native OS share or WhatsApp message was performed during this revision.
 
-## Automated and local checks
+## Results
 
-- `npm test`: **53 tests passed in 5 files** — pricing 7, dependencies 7, validation 13, sessions 8, endpoints/quotations 18.
-- `node scripts/build.mjs`: succeeded; only allowlisted public assets are published into `dist`.
-- Netlify Dev: all three Node Functions loaded. This revision was verified at **http://localhost:8889** with isolated static and Function ports because another process occupied the standard local ports. The configured normal port remains 8888.
-- `node tests/browser.mjs`: **26 checks passed**, including actual local quotation submission. Test submissions generated quotes but did not send messages.
-- `node tests/local-functions.mjs`: actual Functions rejected unauthenticated requests (401), invalid IDs (422) and wrong origins (403); private static paths returned 404. A valid submission returned the recalculated fee, 30-day validity and WhatsApp link (200).
+- **42 automated tests passed across 5 files:** pricing 7, dependencies 7, selection validation 6, session security 8, quotation/PDF endpoints 14.
+- **23 browser checks passed:** authentication/privacy, dependency addition/removal/cancellation, draft restoration, five editing widths, validation errors, single review validation, recoverable PDF failure, disabled generation actions, review contents/responsiveness, PDF preview/focus restoration, download filename, fallback sharing, simulated native File sharing, cancellation, native error recovery, back-to-edit and no runtime errors.
+- **Real Netlify Functions:** authenticated quotation preparation returned the trusted total and automatic dependencies; signed PDF generation returned a valid `application/pdf` file. No outbound communication occurred.
+- **PDF QA:** foundation-only 2 pages, dependency/provisional example 2 pages, full selection 4 pages. Rendered pages were visually inspected. Text was extracted successfully; A4 size and text bounds passed. Pagination was refined to keep section headings and the final acknowledgement with their content.
+- Public build succeeded using the allowlisted `dist` assets.
 
-Local verification used temporary access/session values, an exact localhost origin and a format-only WhatsApp test number. No real recipient number is embedded in application code. CLI fallback: `netlify dev --offline --internal-disable-edge-functions --port 8889 --staticServerPort 4001 --functions-port 9998`. The application has no Edge Functions. Test runners accept `TEST_BASE_URL` for this isolated port.
+Local server for this revision: **http://localhost:8890**. Normal project configuration remains port 8888. Isolated verification used ports 8890/4002/9997 to avoid existing local processes. The CLI's unused Edge runtime was disabled for local testing; production uses standard Node Functions.
 
-## Coverage
+## Security and correctness checks
 
-Unit/endpoint checks cover trusted pricing and transitive dependencies; unknown/duplicate IDs; foundation; provisional accounting; respondent validation; session signing, expiry and malformed cookies; reference format and uniqueness; exact UTC validity; all omitted elective modules; digits-only recipient validation; ignored browser prices, totals, recipient and validity; WhatsApp text contents and URL encoding. Outbound `fetch` is prohibited in quotation endpoint tests and is never called.
+The quotation endpoint accepts selected IDs and ignores browser prices, totals, names, validity and dependency results. Unknown modules and invalid recipient formats are rejected. Dependencies are resolved from the trusted catalogue, preserving which modules were explicitly requested.
 
-Browser checks cover unlock and wrong code; authenticated catalogue and source isolation; 360/390/768/1024/1440px without overflow; dependency additions/removal/cancellation; draft restoration; provisional labels; server review; modal focus containment and Escape/restoration; mobile review; form validation; intercepted server failure; session expiry and reauthentication; actual quotation success and draft clearing; server-generated WhatsApp link and validity; print/PDF output; malformed configuration/retry; no runtime errors.
+PDF generation accepts a signed token, not a browser-owned quotation object. Tampering, expiry and changes to the catalogue/recipient after review are rejected. The PDF is reconstructed from exactly the server-validated values, checked using an integrity digest. Both endpoints enforce signed sessions and Origin checks.
 
-The current print quotation and its PDF are generated in ignored `artifacts/`. Visual inspection prompted hiding the keyboard skip link in print and compacting spacing. The printable quote contains reference, time, validity, respondent, selected modules and individual prices, total, omitted modules and agreement disclaimer. Navigation and sharing buttons are excluded. No WhatsApp action was clicked; real account/device handoff is a manual check after the actual recipient is configured.
+Tests verify the exact short WhatsApp message and filename; supporting native shares receive a real PDF `File`, MIME type and short message. Unsupported sharing downloads the same file and exposes Open WhatsApp with instructions to attach it manually. Closing/cancelling the simulated native sheet returns to review without a delivery claim.
 
-## Remaining boundaries
+## Browser and device limitations
 
-No production deployment was performed. Set the four variables from `.env.example` on the intended free Netlify project, including the actual digits-only WhatsApp recipient and `SITE_ORIGIN=https://YOUR-SITE.netlify.app`. No custom domain is required. Free-plan usage limits still apply.
+The browser suite uses headless Microsoft Edge with simulated `navigator.share`/`canShare`. It verifies application behaviour and payloads, not the operating system's actual UI or WhatsApp delivery. A manual check on the intended phone remains necessary after setting the actual recipient. The native sheet cannot force the app/contact; users select WhatsApp and Alfred themselves. The configured number controls the fallback Open WhatsApp link.
 
-No quotation archive exists: save/print or manually share before closing the page. Retrying creates a new quote reference and timestamp but has no external delivery side effect. Quotation validity currently defaults to 30 days and can be changed in the server's `QUOTE_VALIDITY_DAYS` constant.
+PDF preview depends on a browser PDF viewer. Download PDF remains available when inline preview is not supported. PDF text is selectable, rather than a screenshot; this is not a tagged-PDF accessibility certification. No comprehensive screen-reader audit was performed.
 
-The previous dependency audit reported 0 production vulnerabilities and 56 development-tool findings (1 low, 19 moderate, 31 high, 5 critical). Dependencies were not changed in this revision; that audit has not been rerun. Keep local development private and reassess tool updates before production handover. Browser testing is not a comprehensive assistive-technology audit. There is no distributed rate limiter or individual identity management.
+## Artifacts and operations
+
+- `artifacts/browser-results.json`: browser result list.
+- `artifacts/review-*.png`: review screens at the five required widths.
+- `artifacts/generated-quotation.pdf`: browser download from the real Function during testing.
+- `artifacts/pdf-qa/`: regenerated PDF fixtures, page images and text/bounds checks.
+
+Artifacts use synthetic selections and format-only recipient fixtures. They are ignored by Git and not published. Actual recipient configuration, production hosting and device sharing remain manual handover checks. Quotations are not archived on the server. The existing free Netlify subdomain workflow and four environment variables remain sufficient.
+
+The PDF library installation reported the existing 56 development-tool audit findings. They are not application delivery services; review toolchain updates before production handover and keep the local development server private. The final production dependency audit reported 0 vulnerabilities.

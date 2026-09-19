@@ -2,12 +2,11 @@ import { calculate, resolveSelection, removalImpact } from '/shared/dependencies
 const $ = selector => document.querySelector(selector);
 const money = amount => new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 }).format(amount);
 const STORAGE = 'zadok-scope-draft-2026-09-v1';
-let catalog = [], explicit = [], busy = false, storageWarning = false, confirmAction;
+let catalog = [], explicit = [], storageWarning = false, confirmAction;
 const node = (tag, text, className) => { const element = document.createElement(tag); if (text !== undefined) element.textContent = text; if (className) element.className = className; return element; };
 function announce(message) { $('#announcement').textContent = message; clearTimeout(announce.timer); announce.timer = setTimeout(() => $('#announcement').textContent = '', 9000); }
-function details() { return Object.fromEntries(['name','role','email','note'].map(key => [key, $(`#${key}`).value])); }
 function saveDraft() {
-  try { localStorage.setItem(STORAGE, JSON.stringify({ explicit, details:details() })); }
+  try { localStorage.setItem(STORAGE, JSON.stringify({ explicit })); }
   catch { if (!storageWarning) announce('This browser cannot save your draft. Keep this tab open until you finish.'); storageWarning = true; }
 }
 function restoreDraft() {
@@ -16,7 +15,6 @@ function restoreDraft() {
     const draft = JSON.parse(raw);
     explicit = Array.isArray(draft.explicit) ? [...new Set(draft.explicit.filter(id => catalog.some(item => item.id === id && item.category !== 'foundation')))] : [];
     resolveSelection(explicit, catalog);
-    for (const [key, value] of Object.entries(draft.details || {})) if (['name','role','email','note'].includes(key) && typeof value === 'string') $(`#${key}`).value = value;
     announce('Your saved draft has been restored.');
   } catch { announce('The saved draft could not be restored. A fresh selection is ready.'); explicit = []; }
 }
@@ -124,76 +122,96 @@ function changeSelection(id, checked) {
     else remove();
   }
 }
-$('#clear-draft').addEventListener('click', () => {
-  ask('This removes your optional selections and respondent details from this browser. The required foundation stays included.', () => { explicit = []; $('#submit-form').reset(); update(); announce('Draft cleared.'); },'Clear your draft?');
-});
-async function openReview() {
-  summaryInto($('#review-summary'),calculate(explicit,catalog));
-  $('#review-authority').textContent = 'Checking the selection with the server…'; $('#validation-summary').hidden = true; $('#submission-status').textContent = '';
-  $('#respondent-fields').disabled = false; $('#submit-button').disabled = true;
-  $('#review-dialog').showModal(); $('#review-title').focus();
-  try {
-    {
-      const result = await api('scope-config', { method:'POST', body:JSON.stringify({ selectedIds:explicit }) });
-      if (!Number.isSafeInteger(result.total) || !Array.isArray(result.modules)) throw new Error('The review response could not be read. Close and reopen Review to retry.');
-      summaryInto($('#review-summary'),result);
-      $('#review-authority').textContent = 'Server-validated selection and provisional quotation total. Required dependencies are included.';
-    }
-    $('#submit-button').disabled = false;
-  } catch(error) { $('#submission-status').textContent = error.message; if (error.code === 'SESSION_EXPIRED') expire(error.message); }
+let state = 'editing', quotation = null, pdfFile = null, pdfUrl = '', sharePending = false, lastReviewButton;
+function setState(next) {
+  state = next; $('#main').dataset.state = next;
+  const generating = next === 'generating_pdf';
+  $('#quotation-review').setAttribute('aria-busy',String(generating));
+  document.querySelectorAll('.review-button').forEach(button => {button.disabled = next === 'validating';});
+  document.querySelectorAll('[data-pdf-action]').forEach(button => {button.disabled = generating || !pdfFile || sharePending;});
+  $('#back-edit').disabled = generating;
 }
-document.querySelectorAll('.review-button').forEach(button => button.addEventListener('click',openReview));
-$('.close-dialog').addEventListener('click', () => { if (!busy) $('#review-dialog').close(); });
-$('#review-dialog').addEventListener('cancel',event => { if (busy) event.preventDefault(); });
-// Keep Tab within the dialog even when a browser would move focus to its chrome.
-for (const dialog of document.querySelectorAll('dialog')) dialog.addEventListener('keydown', event => {
-  if (event.key !== 'Tab') return;
-  const controls = [...dialog.querySelectorAll('button,input,textarea,a[href],[tabindex]')].filter(element => !element.matches(':disabled') && element.tabIndex >= 0 && element.getClientRects().length && !element.closest('[aria-hidden="true"]'));
-  const first = controls[0], last = controls.at(-1);
-  if (!first) { event.preventDefault(); return; }
-  if (event.shiftKey && (document.activeElement === first || !controls.includes(document.activeElement))) { event.preventDefault(); last.focus(); }
-  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-});
-$('#submit-form').addEventListener('input',saveDraft);
-function showValidation(fields) {
-  const box = $('#validation-summary'); box.replaceChildren(node('p','Please check these details:'));
-  const list = node('ul');
-  for (const [key,message] of Object.entries(fields)) { const li = node('li'), link = node('a',message); link.href = `#${key}`; link.addEventListener('click',event => { event.preventDefault(); $(`#${key}`)?.focus(); }); li.append(link); list.append(li); $(`#${key}`)?.setAttribute('aria-invalid','true'); }
-  box.append(list); box.hidden = false; box.focus();
-}
-function expire(message) { $('#review-dialog').close(); $('#proposal').hidden = true; $('#access').hidden = false; $('#access-status').textContent = message; $('#access-code').focus(); }
-$('#submit-form').addEventListener('submit', async event => {
-  event.preventDefault(); if (busy) return;
-  $('#validation-summary').hidden = true; document.querySelectorAll('[aria-invalid]').forEach(input => input.removeAttribute('aria-invalid'));
-  const fields = {};
-  for (const input of $('#respondent-fields').querySelectorAll('input,textarea')) if (!input.validity.valid || (input.required && input.type !== 'checkbox' && input.value.trim().length < (input.minLength > 0 ? input.minLength : 1))) fields[input.id] = input.type === 'checkbox' ? 'Confirm that this selection should be submitted for review.' : `Check ${input.labels[0].textContent.toLowerCase()}.`;
-  if (Object.keys(fields).length) { showValidation(fields); return; }
-  busy = true; $('#submit-button').disabled = true; $('#respondent-fields').disabled = true; $('.close-dialog').disabled = true; $('#submission-status').textContent = 'Validating your selection and preparing the quotation…';
-  try {
-    const result = await api('submit-scope',{ method:'POST', body:JSON.stringify({ selectedIds:explicit, ...details(), confirm:$('#confirm').checked, website:$('#website').value }) });
-    if (typeof result.reference !== 'string' || !Array.isArray(result.modules) || !Array.isArray(result.unselectedModules) || !Number.isSafeInteger(result.total) || !Number.isInteger(result.validityDays) || !Number.isFinite(Date.parse(result.validUntil)) || typeof result.whatsapp?.message !== 'string' || !/^https:\/\/wa\.me\/[1-9]\d{7,14}\?text=/.test(result.whatsapp?.url || '')) throw new Error('The quotation response could not be confirmed. Your draft is preserved; please retry.');
-    try { localStorage.removeItem(STORAGE); } catch { announce('Quotation generated, but browser storage could not be cleared.'); }
-    $('#review-dialog').close(); $('#proposal').hidden = true; $('#success').hidden = false;
-    const receipt = $('#receipt'); receipt.replaceChildren(node('p',`Reference: ${result.reference}`),node('p',`Submitted (UTC): ${result.timestamp}`),node('p',`Valid for ${result.validityDays} days, until ${new Date(result.validUntil).toLocaleDateString('en-GB', {day:'numeric',month:'long',year:'numeric',timeZone:'UTC'})} (UTC).`),node('p',`${result.respondent.name} · ${result.respondent.role} · ${result.respondent.email}`));
-    const selection = node('div'); summaryInto(selection,result); receipt.append(selection);
-    if (result.respondent.note) receipt.append(node('p',`Your note: ${result.respondent.note}`));
-    const exclusions = node('section',undefined,'quote-exclusions'); exclusions.append(node('h3','Optional modules not selected'));
-    for (const [category,title] of [['launch','Launch modules'],['addition','Possible additions']]) {
-      const omitted = result.unselectedModules.filter(item => item.category === category);
-      exclusions.append(node('h4',title));
-      const list = node('ul'); omitted.forEach(item => list.append(node('li',item.title)));
-      exclusions.append(omitted.length ? list : node('p','None; all modules in this category are selected.'));
+function discardPdf() { if(pdfUrl) URL.revokeObjectURL(pdfUrl); pdfUrl='';pdfFile=null; }
+$('#clear-draft').addEventListener('click', () => ask('This removes your optional selections from this browser. The required foundation stays included.', () => { explicit=[];update();announce('Draft cleared.'); },'Clear your draft?'));
+function showReview() { $('#quotation-share').hidden=true;$('#quotation-review').hidden=false;$('#review-title').focus(); }
+function renderQuotation(quote) {
+  const date = value => new Date(value).toLocaleString('en-GB',{timeZone:'UTC'});
+  $('#quote-metadata').replaceChildren(node('p',`Reference: ${quote.reference}`),node('p',`Generated: ${date(quote.timestamp)} UTC`),node('p',`Valid for ${quote.validityDays} days, until ${date(quote.validUntil)} UTC`));
+  const content=$('#review-content');content.replaceChildren();
+  for(const [category,label] of [['foundation','Required foundation'],['launch','Selected launch modules'],['addition','Selected possible additions']]) {
+    const section=node('section',undefined,'review-section');section.append(node('h2',label));
+    const items=quote.modules.filter(item=>item.category===category);
+    if(!items.length)section.append(node('p','None selected.'));
+    for(const item of items){
+      const row=node('article',undefined,'review-module');const header=node('div',undefined,'review-module-heading');
+      header.append(node('h3',item.title),node('strong',`${item.provisional?'From ':''}${money(item.price)}`));row.append(header,node('p',item.value));
+      if(quote.automaticIds.includes(item.id))row.append(node('p',`Automatically included for: ${quote.modules.filter(other=>other.dependencies.includes(item.id)).map(other=>other.title).join('; ')}.`,'selection-label'));
+      else if(category==='foundation')row.append(node('p','Required foundation - always included.','selection-label'));
+      row.append(inclusionDetails(item));if(item.warning)row.append(node('p',item.warning,'warning'));section.append(row);
     }
-    receipt.append(exclusions,node('p','This scope and project fee are subject to final written agreement. No payment has been made.','small'));
-    // The server constructs this link from its own recalculated quotation, never the preview.
-    $('#whatsapp').href = result.whatsapp.url;
-    $('#success-title').focus();
-  } catch(error) {
-    $('#submission-status').textContent = error.message;
-    saveDraft();
-    if (error.fields) showValidation(error.fields);
-    if (error.code === 'SESSION_EXPIRED') expire(error.message);
-  } finally { $('#respondent-fields').disabled = false; busy = false; $('#submit-button').disabled = false; $('.close-dialog').disabled = false; }
+    content.append(section);
+  }
+  const total=node('div',undefined,'total-block');total.append(node('p','Final project total'),node('strong',money(quote.total)));if(quote.provisional)total.append(node('p','Includes a provisional accounting-platform amount; final scope and price depend on the provider and available API.','small'));content.append(total);
+  const exclusions=node('section',undefined,'quote-exclusions');exclusions.append(node('h2','Optional modules not selected'));
+  const list=node('ul');quote.unselectedModules.forEach(item=>list.append(node('li',item.title)));exclusions.append(quote.unselectedModules.length?list:node('p','None; all optional modules are selected.'));content.append(exclusions,node('p',quote.acknowledgement,'review-notice'));
+}
+async function reviewScope(event) {
+  if(state==='validating')return;
+  lastReviewButton=event.currentTarget;setState('validating');announce('Validating your selected scope and total...');
+  try {
+    const result=await api('quotation',{method:'POST',body:JSON.stringify({selectedIds:explicit})});
+    if(!validConfig({catalog:result.modules}) || !Array.isArray(result.automaticIds) || !Array.isArray(result.unselectedModules) || !Number.isSafeInteger(result.total) || typeof result.pdfToken!=='string' || !/^ZF-\d{8}-[A-F0-9]{16}$/.test(result.reference) || !Number.isFinite(Date.parse(result.timestamp)) || !Number.isFinite(Date.parse(result.validUntil)) || !/^https:\/\/wa\.me\/[1-9]\d{7,14}\?text=/.test(result.whatsapp?.url||''))throw new Error('The quotation response could not be read. Please try again.');
+    quotation=result;discardPdf();renderQuotation(result);$('#proposal').hidden=true;showReview();setState('review_ready');announce('Your quotation is ready for review. Nothing has been sent.');await preparePdf();
+  }catch(error){setState('editing');announce(error.message);if(error.code==='SESSION_EXPIRED'){$('#proposal').hidden=true;$('#access').hidden=false;$('#access-status').textContent=error.message;$('#access-code').focus();}}
+}
+document.querySelectorAll('.review-button').forEach(button=>button.addEventListener('click',reviewScope));
+async function preparePdf() {
+  if(state==='generating_pdf')return;
+  setState('generating_pdf');$('#pdf-status').textContent='Generating your print-quality quotation PDF...';$('#retry-pdf').hidden=true;
+  try {
+    const response=await fetch('/api/quotation-pdf',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pdfToken:quotation.pdfToken}),signal:AbortSignal.timeout(30000)});
+    if(!response.ok){const data=await response.json();throw new Error(data.error?.message||'The PDF could not be generated. Please retry.');}
+    if(!response.headers.get('content-type')?.includes('application/pdf'))throw new Error('An invalid PDF response was returned. Please retry.');
+    const bytes=await response.arrayBuffer();
+    if(new TextDecoder().decode(bytes.slice(0,5))!=='%PDF-')throw new Error('The PDF could not be read. Please retry.');
+    pdfFile=new File([bytes],quotation.filename,{type:'application/pdf',lastModified:Date.parse(quotation.timestamp)});pdfUrl=URL.createObjectURL(pdfFile);
+    $('#pdf-status').textContent='Your quotation PDF is ready to preview, download or share.';
+  }catch(error){$('#pdf-status').textContent=error.message||'The PDF could not be generated. Please retry.';$('#retry-pdf').hidden=false;}
+  finally{setState('review_ready');}
+}
+$('#retry-pdf').addEventListener('click',preparePdf);
+$('#back-edit').addEventListener('click',()=>{discardPdf();quotation=null;$('#quotation-review').hidden=true;$('#quotation-share').hidden=true;$('#proposal').hidden=false;setState('editing');lastReviewButton?.focus();});
+function downloadPdf(){if(!pdfFile)return;const link=node('a');link.href=pdfUrl;link.download=pdfFile.name;document.body.append(link);link.click();link.remove();announce('Your quotation PDF download has been requested.');}
+document.querySelectorAll('.download-pdf').forEach(button=>button.addEventListener('click',downloadPdf));
+$('#preview-pdf').addEventListener('click',()=>{$('#pdf-preview').src=pdfUrl;$('#preview-dialog').showModal();});
+$('#close-preview').addEventListener('click',()=>$('#preview-dialog').close());
+function shareView(fallback){
+  $('#quotation-review').hidden=true;$('#quotation-share').hidden=false;$('#open-whatsapp').hidden=!fallback;$('#share-again').hidden=fallback;
+  $('#open-whatsapp').href=quotation.whatsapp.url;$('#share-reference').textContent=`Reference: ${quotation.reference}`;
+  $('#share-message').textContent=fallback?'Your quotation has been downloaded. Open WhatsApp and attach the downloaded PDF to complete the process.':'Your device\u2019s share options have been opened. Select WhatsApp and send the attached quotation to complete the process.';
+  $('#share-error').textContent='';setState('share_opened');$('#share-title').focus();
+}
+async function shareQuotation(){
+  if(!pdfFile||sharePending||state==='generating_pdf')return;
+  let supported=false;
+  try{supported=typeof navigator.share==='function' && typeof navigator.canShare==='function' && navigator.canShare({files:[pdfFile]});}catch{supported=false;}
+  if(!supported){downloadPdf();shareView(true);return;}
+  sharePending=true;setState(state);
+  try{
+    // The already prepared File preserves transient user activation for the native share call.
+    const sharing=navigator.share({files:[pdfFile],title:'Zadok Farm - Project Scope Selection',text:quotation.whatsapp.message});
+    shareView(false);await sharing;
+  }catch(error){
+    showReview();setState('review_ready');
+    $('#pdf-status').textContent=error.name==='AbortError'?'Sharing was cancelled. Your quotation is still ready to download or share.':'The device could not open file sharing. Download the PDF and open WhatsApp to attach it manually.';
+    if(error.name!=='AbortError'){$('#share-error').textContent='File sharing is unavailable on this device.';$('#manual-fallback').hidden=false;}
+  }finally{sharePending=false;setState(state);}
+}
+$('#share-quote').addEventListener('click',shareQuotation);$('#share-again').addEventListener('click',shareQuotation);
+const fallback=node('button','Download and open sharing instructions');fallback.id='manual-fallback';fallback.type='button';fallback.hidden=true;$('#pdf-status').after(fallback);fallback.addEventListener('click',()=>{downloadPdf();shareView(true);});
+$('#return-quote').addEventListener('click',()=>{showReview();setState('review_ready');});
+for(const dialog of document.querySelectorAll('dialog'))dialog.addEventListener('keydown',event=>{
+  if(event.key!=='Tab')return;const controls=[...dialog.querySelectorAll('button,a[href],iframe')].filter(element=>!element.matches(':disabled')&&element.getClientRects().length);const first=controls[0],last=controls.at(-1);
+  if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}
 });
-$('#print').addEventListener('click',() => window.print());
-loadConfig(true);
+setState('editing');loadConfig(true);

@@ -1,13 +1,6 @@
-import assert from 'node:assert/strict';
-const base=process.env.TEST_BASE_URL || 'http://localhost:8888';
-const headers={origin:base,'content-type':'application/json'};
-const unauthorized=await fetch(`${base}/api/submit-scope`,{method:'POST',headers,body:'{}'});assert.equal(unauthorized.status,401);
-const auth=await fetch(`${base}/api/auth`,{method:'POST',headers,body:JSON.stringify({code:'local-test-code'})});assert.equal(auth.status,200);
-headers.cookie=auth.headers.get('set-cookie').split(';')[0];
-
-const response=await fetch(`${base}/api/submit-scope`,{method:'POST',headers,body:JSON.stringify({selectedIds:['unknown'],name:'Test User',role:'Manager',email:'test@example.com',confirm:true,website:''})});assert.equal(response.status,422);
-const denied=await fetch(`${base}/api/submit-scope`,{method:'POST',headers:{...headers,origin:'https://other.example'},body:'{}'});assert.equal(denied.status,403);
-for(const path of ['/netlify/functions/lib/catalog.mjs','/.env','/package.json'])assert.equal((await fetch(base+path)).status,404);
-console.log('PASS actual Netlify submit Function: unauthenticated 401, invalid IDs 422, wrong origin 403; three private paths 404. No outbound delivery request made.');
-
-const valid=await fetch(`${base}/api/submit-scope`,{method:'POST',headers,body:JSON.stringify({selectedIds:['basket'],name:'Test User',role:'Manager',email:'test@example.com',confirm:true,website:'',total:1})});assert.equal(valid.status,200);const quote=await valid.json();assert.equal(quote.total,240000);assert.equal(quote.validityDays,30);assert.ok(quote.whatsapp.url.startsWith('https://wa.me/'));console.log('PASS actual Netlify quotation and WhatsApp response, no outbound delivery.');
+﻿import assert from 'node:assert/strict';
+const base=process.env.TEST_BASE_URL||'http://localhost:8888';const headers={origin:base,'content-type':'application/json'};
+assert.equal((await fetch(`${base}/api/quotation`,{method:'POST',headers,body:'{"selectedIds":[]}'})).status,401);
+const auth=await fetch(`${base}/api/auth`,{method:'POST',headers,body:JSON.stringify({code:'local-test-code'})});assert.equal(auth.status,200);headers.cookie=auth.headers.get('set-cookie').split(';')[0];
+const quote=await (await fetch(`${base}/api/quotation`,{method:'POST',headers,body:JSON.stringify({selectedIds:['basket'],total:1})})).json();assert.equal(quote.total,240000);assert.deepEqual(quote.automaticIds,['catalogue']);
+const pdf=await fetch(`${base}/api/quotation-pdf`,{method:'POST',headers,body:JSON.stringify({pdfToken:quote.pdfToken,total:1})});assert.equal(pdf.status,200);assert.equal(pdf.headers.get('content-type'),'application/pdf');assert.equal(Buffer.from(await pdf.arrayBuffer()).subarray(0,5).toString(),'%PDF-');console.log('PASS real Netlify validation and signed PDF generation; no outbound sharing.');

@@ -1,131 +1,128 @@
-# Zadok Farm project scope builder
+﻿# Zadok Farm scope builder
 
-A private scope-selection and quotation tool for Zadok Farm management. Select capabilities, validate the selection on the server, print a quotation and manually share it via WhatsApp. It is not a payment flow or binding agreement.
+A private, lightweight scope-selection tool. The complete journey is **Select scope → Review quotation → Share quotation**. Nothing is communicated to Alfred from the website. The user decides whether to share the prepared PDF through WhatsApp.
 
-## Architecture and files
+## Architecture
 
-- `index.html`, `styles.css`, `app.js`: semantic vanilla interface, native checkboxes/disclosures, accessible modal review, local draft and professional print quotation.
-- `netlify/functions/auth.mjs`: access-code verification and signed four-hour session cookie.
-- `netlify/functions/scope-config.mjs`: authenticated catalogue GET and authoritative review POST.
-- `netlify/functions/submit-scope.mjs`: validates submitted IDs and respondent details; resolves dependencies; recalculates integer-naira prices; generates the quotation and WhatsApp message entirely from trusted values. Makes no outbound network request.
-- `netlify/functions/lib/catalog.mjs`: sole authoritative catalogue and prices.
-- `netlify/functions/lib/{session,validation,responses,dependencies}.mjs`: server helpers.
-- `shared/dependencies.mjs`: pure resolution, calculation and removal functions; contains no trusted catalogue or prices.
-- `scripts/build.mjs`: explicit allowlist of public files copied into `dist/`.
-- `tests/*.test.mjs`: automated unit and Function tests.
-- `tests/browser.mjs`, `tests/local-functions.mjs`: local browser and actual Function checks.
-- `netlify.toml`, `robots.txt`, `.env.example`, `.gitignore`, `package.json`, `package-lock.json`, `vitest.config.mjs`: configuration and tooling.
+Semantic HTML, modern CSS and vanilla JavaScript with Node ES module Netlify Functions. No database, mail provider, paid messaging API or custom domain is required. `pdf-lib` is a free open-source runtime dependency for selectable-text PDF generation; it does not capture screenshots. No frontend framework or PDF rendering library is shipped to the browser.
 
-The repository root contains source; Netlify publishes only `dist`. Publishing the source root would risk exposing the private catalogue and development files. The shared dependency module avoids duplicated business rules. No application framework, database, mail service, paid API or PDF library is required. Vitest uses Vite internally as a test dependency; the application does not use Vite.
+- `index.html`, `styles.css`, `app.js`: builder, full review view, PDF preview and user-controlled sharing.
+- `netlify/functions/auth.mjs`: access-code authentication and four-hour signed session cookie.
+- `netlify/functions/scope-config.mjs`: authenticated display catalogue.
+- `netlify/functions/quotation.mjs`: one validation step returning an authoritative quotation and signed PDF authorization.
+- `netlify/functions/quotation-pdf.mjs`: creates the PDF from the signed quotation; accepts no trusted browser prices.
+- `netlify/functions/lib/catalog.mjs`: sole trusted catalogue, prices and dependencies.
+- `netlify/functions/lib/quotation.mjs`: reference, dates, automatic dependency attribution, exclusions, message and integrity digest.
+- `netlify/functions/lib/quote-document.mjs`: branded A4 PDF layout, wrapping, pagination and selectable text.
+- Other `lib/` files: sessions, validation, responses and shared dependency exports.
+- `shared/dependencies.mjs`: pure catalogue-parameterised calculations, resolution and removal impacts.
+- `scripts/build.mjs`: explicit public-file allowlist into `dist`.
+- `tests/`: Vitest suites, browser checks, live Function checks and PDF layout fixtures.
+- `netlify.toml`, `robots.txt`, `.env.example`, `.gitignore`: hosting/privacy configuration.
 
-## Local setup (PowerShell)
+Source stays at repository root; only `dist` is published so server files and trusted pricing cannot be downloaded as static assets. `submit-scope.mjs` was removed: there is no submission endpoint or second confirmation form.
 
-Use a supported Node LTS release (Node 22 recommended), npm and Microsoft Edge for the browser tests.
+## Setup (PowerShell)
+
+Use a supported Node LTS release (Node 22 recommended) and npm. Microsoft Edge is used by optional browser tests.
 
 ```powershell
-cd C:\Users\USER\Dev\Web\Zadok\ZadokScopeBuilder
 npm install
 Copy-Item .env.example .env
-# Fill in all four variables in .env.
+# Configure the four variables below.
 npm run build
 npx netlify dev
 ```
 
-Open http://localhost:8888. Re-run `npm run build` after public source changes. Function source changes reload automatically. Secure cookies work on modern browsers' trusted localhost exception; use HTTPS in production, not a plain-HTTP LAN hostname.
+Normal URL: http://localhost:8888. Re-run `npm run build` after editing public files. Function edits reload automatically. If a Windows npm shim fails, use `npm.cmd` or the npm CLI through Node. The test script invokes Vitest through Node to avoid a missing Windows `.cmd` shim.
 
-If the Windows extensionless npm shim fails, use `npm.cmd` or this machine's `node C:\nvm4w\nodejs\node_modules\npm\bin\npm-cli.js` workaround.
+If the CLI stalls downloading its unused Edge/Deno environment, the tested local fallback is `npx netlify dev --offline --internal-disable-edge-functions`. That internal option may change in future CLI versions; this app uses only Node Functions.
 
-This CLI version may stall preparing its unused Deno runtime locally. This app uses Node Functions only. The tested local fallback is:
+## Environment variables
 
-```powershell
-npx netlify dev --offline --internal-disable-edge-functions
-```
-
-That internal CLI option may change between versions.
-
-## Required environment variables
-
-Exactly four variables are used:
-
-| Variable | Value |
+| Variable | Purpose |
 | --- | --- |
-| `SCOPE_ACCESS_CODE` | Strong code privately shared with management. |
+| `SCOPE_ACCESS_CODE` | Strong, privately distributed management access code. |
 | `SCOPE_SESSION_SECRET` | Random secret of at least 32 characters. |
-| `SITE_ORIGIN` | `http://localhost:8888` locally; `https://YOUR-SITE.netlify.app` in production, without a path. |
-| `WHATSAPP_RECIPIENT_NUMBER` | Actual recipient in international format: digits only, country code first, no plus sign, spaces or punctuation. |
+| `SITE_ORIGIN` | Exact localhost origin for development or `https://YOUR-SITE.netlify.app` in production. |
+| `WHATSAPP_RECIPIENT_NUMBER` | Alfred's actual international number, digits only, without a plus sign, spaces or punctuation. |
 
-The recipient validator accepts 8–15 digits beginning with 1–9. A syntactically valid number must still belong to the intended WhatsApp recipient. Configure the real number before sharing the app. No recipient is accepted from browser input.
+The recipient validator accepts 8–15 digits starting with 1–9. Confirm the actual number with Alfred. Generate a random secret with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Never commit `.env`. Secure cookies require HTTPS in production; modern Chromium browsers support them on localhost for testing.
 
-Generate a secret with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Do not commit `.env`. Rotating the session secret invalidates existing sessions.
+## Journey and state
 
-## Submission, quotation and WhatsApp
+1. **Select scope:** Review selected scope sends only selected IDs to the quotation Function. It rejects unknown IDs, enforces dependencies and calculates integer-naira totals. Extra browser prices, module objects, totals and dependency results are ignored.
+2. **Review quotation:** one authoritative view displays descriptions, prices, automatic dependencies, exclusions, reference, generation time, validity and scope notes. Back to edit invalidates the prepared PDF. The draft remains available: reviewing or sharing does not clear it or imply delivery.
+3. **Share quotation:** the server generates the PDF while the review is open. A loading state disables PDF actions until the browser has created a `File` with MIME type `application/pdf`. The user can preview, download or share it.
 
-The browser sends selected module IDs, respondent details, review confirmation and the honeypot field. It sends no trusted prices. Unknown IDs are rejected, duplicates are deduplicated, required dependencies and foundation are included, and browser-supplied totals, module objects, validity and recipients are ignored.
+Internal UI states are `editing`, `validating`, `review_ready`, `generating_pdf`, and `share_opened`. Errors and cancellation return to an actionable review or editing state. No state claims recipient delivery.
 
-The Function returns:
+PDF generation uses a signed token containing original explicit IDs, reference, generation time and a digest of the entire authoritative quotation. The Function reconstructs it from the server catalogue and compares the digest. Changed catalogue/recipient settings, tampering or expired authorization require a new review. Browser calculations never become the PDF's source of truth. Session authentication and Origin checks apply to both preparation endpoints.
 
-- `reference`: collision-resistant `ZF-YYYYMMDD-<16 hex characters>` quote reference;
-- `timestamp`: UTC submission time;
-- `selectedIds`, `modules`: canonical selection including dependencies and individual trusted prices;
-- `unselectedModules`: all unselected elective launch modules and possible additions, excluding the required foundation;
-- `total`, `provisional`: integer-naira project fee and provisional-accounting indicator;
-- `validityDays`, `validUntil`: **30 days**, configured by `QUOTE_VALIDITY_DAYS` in `submit-scope.mjs`;
-- `respondent`: validated respondent details;
-- `whatsapp.message`, `whatsapp.url`: server-generated text and encoded `https://wa.me/` handoff link.
+Quote validity is **30 days**, controlled by `QUOTE_VALIDITY_DAYS` in `lib/quotation.mjs`. The PDF preparation token lasts four hours, separately from quote validity. After that period, review again to prepare a new PDF. No quotation archive is stored.
 
-The WhatsApp text contains the Zadok scope heading, quote reference, selected modules with prices, total fee, validity and acknowledgement that the scope is subject to final written agreement. Provisional accounting pricing remains labelled. It uses the server quotation, never the browser preview. The message is URL-encoded; the frontend inserts text through DOM textContent and restricts the returned link to the expected wa.me URL format.
+## PDF and sharing
 
-Submission generates a quotation only. Nothing is automatically sent to management. The user clicks **Send selection via WhatsApp**, reviews the prepared message in WhatsApp and chooses to send. The app does not claim WhatsApp delivery or contact WhatsApp during quotation generation. Respondent email is retained as a contact detail on the quotation; it is not used for delivery. Printing uses `window.print()` and A4 print CSS, hiding interactive controls and retaining reference, UTC dates, respondent, selections, exclusions, fee and agreement disclaimer.
+The A4 PDF includes Zadok branding, Project Scope Selection, reference, UTC generation date, validity, selected descriptions/inclusions/prices, automatic dependencies, exclusions, final total and the written-agreement acknowledgement. It uses native text, restrained Helvetica typography, page numbers and green accents. Currency is labelled `NGN` in the PDF for reliable standard-font rendering. This is Nigerian naira, matching the browser totals.
 
-No quotations are stored on the server. The user should print/save the quotation or send the WhatsApp message before closing the page. Network failures preserve the editable local draft; retrying has no delivery side effect, though it generates a new reference and timestamp. Success clears the draft. Buttons are disabled while a submission is pending.
+Filename: `Zadok-Farm-Project-Scope-{{QUOTE_REFERENCE}}.pdf`.
 
-## Free Netlify subdomain deployment
+The file is prepared before the Share button is enabled so that `navigator.share()` can run directly within the user's click activation. Both `navigator.share` and `navigator.canShare({files})` are checked. A supporting device opens its own share sheet; the user chooses WhatsApp. The native sheet cannot be forced to a specific app or contact. The configured recipient is used by the fallback's Open WhatsApp link.
 
-Do not deploy until explicitly authorised after review. Use the Netlify **Free** plan and its supplied `YOUR-SITE.netlify.app` address. No custom domain, DNS purchase, database, messaging API subscription or paid add-on is needed.
+When file sharing is unavailable, the same PDF is downloaded and the user is instructed to open WhatsApp and attach it manually. A separate Download PDF action always remains available once generation finishes. Cancelled native sharing is acknowledged as cancellation, not delivery. Other native errors expose a manual download fallback. Resolving the native share promise does not prove delivery.
 
-After approval, connect the repository to a Netlify project, retain its default subdomain, and set the four variables above in the production Function environment. `netlify.toml` already sets the build command (`npm run build`), publish directory (`dist`), Functions directory and redirects/security headers. Set `SITE_ORIGIN` to the actual HTTPS Netlify subdomain before production testing. Keep preview/local origins configured separately. Use the account's free-plan limits; do not enable paid upgrades or add-ons. Free hosting has usage limits, not unlimited capacity.
+The exact short message is:
 
-Netlify documents its [default netlify.app address](https://docs.netlify.com/manage/domains/domains-fundamentals/understand-domains/) and [current Free plan limits](https://www.netlify.com/pricing/). No production deployment has been performed here.
+> Good evening Alfred. I’ve reviewed the proposed Zadok Farm website scope and selected the features we want to proceed with. I’ve attached the generated quotation for your review.
+>
+> Reference: {{QUOTE_REFERENCE}}
 
-## Tests
+The fallback message does not attach the file automatically. The user must attach it. The website never opens WhatsApp or sends anything without the user's action. See [Web Share API requirements](https://developer.mozilla.org/en-US/docs/Web/API/Navigator/share) for browser support and activation constraints.
+
+## Tests and PDF inspection
 
 ```powershell
 npm test
-# While local Netlify Dev is running with the test environment:
+# With local Netlify Dev running:
 node tests/local-functions.mjs
 npm run test:browser
+node tests/pdf-fixtures.mjs
 ```
 
-For these local integration tests use `SCOPE_ACCESS_CODE=local-test-code`, a temporary 32+ character session secret, `SITE_ORIGIN=http://localhost:8888`, and `WHATSAPP_RECIPIENT_NUMBER=2348000000000` (a format-only test fixture, not an intended recipient). Never use these fixtures in production. Set `$env:TEST_BASE_URL='http://localhost:8889'` to test a server on another port, and match its `SITE_ORIGIN`. Tests do not click the WhatsApp action or send messages. Endpoint tests explicitly prohibit outbound fetch calls.
+For isolated local tests use code `local-test-code`, a temporary session secret, the matching localhost origin and recipient fixture `2348000000000`. This number is only a format fixture; tests never contact it. `TEST_BASE_URL` optionally overrides the default test origin. Native-share behaviour is simulated in browser tests; real OS sheets and WhatsApp delivery are not automated.
 
-Vitest covers pricing, direct/transitive dependencies, removals, duplicates, unknown IDs, validation, sessions, references, UTC validity, unselected modules, authoritative totals, recipient validation and exact WhatsApp payload encoding. Browser checks cover all five requested widths, modal keyboard behaviour, draft restoration, errors, actual local quotation generation, WhatsApp link contents and print/PDF output. Captures and JSON results live in ignored `artifacts/`. See `VERIFICATION.md` for actual results and limitations.
+`tests/pdf-fixtures.mjs` generates foundation-only, dependency and full-selection PDF fixtures under ignored `artifacts/pdf-qa`. PDF visual QA uses a local renderer (PyMuPDF in this environment) to inspect every page and extract selectable text; it is not an application dependency. See `VERIFICATION.md` for recorded results. Browser preview uses the browser's own PDF viewer; if unavailable, Download PDF remains available.
 
-## Updating the catalogue and rules
+## Free Netlify deployment
 
-Edit prices only in `netlify/functions/lib/catalog.mjs`, using integer naira. Accounting uses `provisional: true` with its starting amount. Do not add browser price constants. Update pricing tests, run all tests and rebuild.
+Deployment remains manual and requires explicit owner authorization. Choose the Free plan and supplied `YOUR-SITE.netlify.app` address, keep paid add-ons disabled, and configure the four environment variables in the production Function context. The build command, `dist` publish directory, Functions and redirects are already in `netlify.toml`. No custom domain is needed. Free plans have usage limits; consult [Netlify pricing](https://www.netlify.com/pricing/) and its [default domain documentation](https://docs.netlify.com/manage/domains/domains-fundamentals/understand-domains/).
 
-New modules need a stable unique ID, category (`launch` or `addition`), integer price, value, inclusions, warning, provisional flag and dependency IDs. Keep exactly one foundation. For incompatible catalogue changes, increment both `catalogVersion` and the versioned storage key in `app.js`. Obsolete selected IDs are filtered during restoration and dependencies are resolved again.
+CSP allows same-origin scripts and connections and a blob frame for PDF preview. Permissions Policy explicitly allows same-origin Web Share; production HTTPS is required for device sharing support. No deployment was performed during this revision.
 
-Basket requires catalogue; records require basket and staff; inventory requires catalogue and staff; training/enquiries require staff; overview requires records. Delivery requires basket; payments/accounts/outreach require records; certificates require training. AI has no forced business module beyond the foundation. Overview displays only selected operational modules. Cycles are rejected. Removing a needed dependency requires confirmation of affected selections. Automatically required modules disappear when no remaining explicit selection needs them.
+## Catalogue maintenance
 
-## Security, privacy and handover
+Edit prices only in `lib/catalog.mjs`, using integer naira. The accounting module remains provisional with its starting amount. New modules need stable IDs, categories, prices, value statements, inclusions, warnings and dependency IDs. Keep exactly one foundation and no cycles. Update pricing tests and increment the catalogue/storage version for incompatible changes.
 
-Sessions use signed HMAC-SHA256 tokens, constant-time comparisons, four-hour expiry and HttpOnly/Secure/SameSite=Strict cookies. Protected Functions authenticate every request. State-changing requests check Origin. Inputs are size-limited and validated; the honeypot discourages simple bots. The publish allowlist isolates server sources. CSP, frame protection, no-sniff, referrer/permissions restrictions and noindex headers are configured. Indexing directives are not access control.
+Basket requires catalogue; records require basket and staff; inventory requires catalogue and staff; training/enquiries require staff; overview requires records. Delivery requires basket; payments/accounts/outreach require records; certificates require training. AI has no forced business module beyond foundation. Removing a needed dependency requires confirmation of affected modules; unused automatic dependencies disappear when no longer required.
 
-This is a shared access code, not individual identity management. There is no database, submission ledger, individual revocation, distributed rate limiter or digital signature proving a printed quote's authenticity. Authenticated users can inspect the displayed catalogue. A PDF or WhatsApp text can be edited by its holder, so final written agreement remains necessary. No secret or complete private submission is logged by application code.
+## Security and handover
 
-Drafts contain selected IDs and respondent details on the current browser, but never the access code, session cookie or stored totals. Browser storage may be blocked or cleared; the interface reports failures. Use a trusted device and clear drafts when appropriate. Retained legacy retry state from older drafts is ignored.
+Signed HMAC sessions use HttpOnly, Secure, SameSite=Strict cookies, safe comparisons and expiry. Functions check authentication, origin, JSON size and module IDs. No access code or session secret is shipped to the browser. No private payload is logged. Security headers include CSP, frame protection, no-sniff, referrer and permissions restrictions. Noindex directives are not authentication.
 
-Hand over the repository and Netlify project ownership, actual recipient number, private access-code distribution and secret-rotation procedure. Remove any obsolete mail-provider variables from existing Netlify environments. Review the catalogue, quote validity and recipient with management, then perform an authorised manual WhatsApp handoff check. No paid service is necessary.
+This is shared-code access, not individual identity management. There is no database, distributed rate limiter, submission ledger or delivery tracking. Authenticated users necessarily see prices. Downloaded PDFs and WhatsApp content can be edited by their holder; final written agreement is still required. Signed PDF preparation does not make a downloaded document a digitally signed legal instrument.
+
+The local draft stores selected IDs only, never authentication data or independent totals. Legacy respondent details are ignored and removed by the next draft save. A failed validation/generation does not erase the selection. Save the PDF before closing the page if needed.
+
+Hand over repository and Netlify ownership, the actual recipient number, access-code distribution and secret rotation procedures. Confirm quote validity and catalogue wording with management. Manually verify file sharing on the intended mobile device after deployment without claiming delivery from the website.
 
 ## Troubleshooting
 
-- **Access fails:** check the code, secret length, environment context and exact origin; restart local Functions after changing environment variables.
-- **Session keeps expiring:** check HTTPS/localhost, cookie support, secret rotation and machine time.
-- **Configuration fails:** use Retry loading proposal; inspect JSON error codes without logging private payloads.
-- **Old interface:** rebuild `dist` and reload.
-- **WhatsApp configuration error:** enter only international digits, without `+`, whitespace or punctuation; restart/redeploy the Functions after correcting it.
-- **Network error:** the draft remains editable; retry when connectivity returns. Nothing was automatically sent.
-- **WhatsApp does not open:** verify WhatsApp is available on the device and the configured number is correct; retain the printable quotation.
-- **Lost quotation after closing the page:** there is no server archive. Generate a new quote from your selection and save it.
-- **Dependency surprise:** read the displayed requirements and removal confirmation before accepting a change.
+- Access failure: check code, secret length, exact origin and environment context.
+- Old screen: rebuild `dist` and reload.
+- PDF preparation expired or catalogue changed: Back to edit, then Review selected scope.
+- Generation fails: Retry PDF generation; the draft remains intact.
+- Native share cancelled: use Share quotation again or Download PDF.
+- File sharing blocked/unsupported: download and attach the PDF manually through Open WhatsApp.
+- PDF preview unavailable: use Download PDF and a local PDF viewer.
+- WhatsApp recipient error: correct the digits-only environment value, then restart/redeploy Functions.
+- Missing saved quotation: no server archive exists; re-review the scope to generate a new reference and PDF.

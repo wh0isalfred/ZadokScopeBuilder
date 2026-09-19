@@ -1,1 +1,23 @@
-{"name":"zadok-scope-builder","version":"1.0.0","private":true,"type":"module","engines":{"node":">=20.19"},"scripts":{"dev":"netlify dev","test":"vitest run","test:browser":"node tests/browser.mjs","build":"node scripts/build.mjs"},"devDependencies":{"vitest":"^3.2.4","netlify-cli":"^23.0.0","playwright":"^1.55.0"}}
+{
+  "name": "zadok-scope-builder",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "dev": "netlify dev",
+    "test": "node node_modules/vitest/vitest.mjs run",
+    "test:browser": "node tests/browser.mjs",
+    "build": "node scripts/build.mjs"
+  },
+  "devDependencies": {
+    "netlify-cli": "^23.0.0",
+    "playwright": "^1.55.0",
+    "vitest": "^3.2.4"
+  },
+  "dependencies": {
+    "pdf-lib": "^1.17.1"
+  }
+}

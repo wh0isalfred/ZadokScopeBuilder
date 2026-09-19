@@ -1,9 +1,6 @@
 ﻿import { it, expect } from 'vitest';
-import { validateSubmission, escapeHtml } from '../netlify/functions/lib/validation.mjs';
+import { validateSelection } from '../netlify/functions/lib/validation.mjs';
 import { catalog } from '../netlify/functions/lib/catalog.mjs';
-const good={name:'Ada Example',role:'Management',email:'ada@example.com',note:'',confirm:true,website:'',selectedIds:['basket']};
-it('validates details and resolves IDs',()=>expect(validateSubmission(good,catalog).selectedIds).toEqual(['foundation','catalogue','basket']));
-it.each(['name','role','email'])('requires valid %s',key=>expect(()=>validateSubmission({...good,[key]:''},catalog)).toThrow());
-it.each([{email:'a@bad'}, {note:'x'.repeat(2001)}, {confirm:false}, {website:'spam'}, {selectedIds:['missing']}, {selectedIds:'basket'}, {name:'a\u0000b'}])('rejects invalid fields %j',change=>expect(()=>validateSubmission({...good,...change},catalog)).toThrow());
-it('ignores browser-supplied names, prices and total',()=>expect(validateSubmission({...good,total:1,price:1,modules:[{title:'Fake',price:0}]},catalog)).toEqual(validateSubmission(good,catalog)));
-it('escapes HTML special characters',()=>expect(escapeHtml('<script a="x">&\'</script>')).toBe('&lt;script a=&quot;x&quot;&gt;&amp;&#39;&lt;/script&gt;'));
+it('preserves explicit selection for automatic dependency attribution',()=>expect(validateSelection({selectedIds:['basket','basket']},catalog)).toEqual(['basket']));
+it.each([{selectedIds:['unknown']},{selectedIds:'basket'},{selectedIds:[1]},{selectedIds:[],website:'bot'}])('rejects invalid selection %j',data=>expect(()=>validateSelection(data,catalog)).toThrow());
+it('ignores prices, titles, totals and dependency results from browser',()=>expect(validateSelection({selectedIds:['basket'],total:0,modules:[{title:'Fake',price:0}],automaticIds:[]},catalog)).toEqual(['basket']));
