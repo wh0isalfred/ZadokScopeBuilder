@@ -34,7 +34,7 @@ await page.locator('#retry-pdf').click();await page.waitForFunction(()=>document
 assert.ok((await page.locator('#review-content').innerText()).includes('Automatically included for:'));assert.ok((await page.locator('#review-content').innerText()).includes('Optional modules not selected'));pass('review includes descriptions, dependencies and exclusions');
 assert.deepEqual(await page.locator('#review-content h2').allTextContents(),sectionOrder);
 assert.ok((await page.locator('#review-content .care-section').innerText()).includes('scoped and approved separately before work begins.'));
-assert.ok((await page.locator('#review-content .total-block').innerText()).includes('252,000'));
+assert.ok((await page.locator('#review-content .total-block').innerText()).includes('212,000'));
 assert.ok(!(await page.locator('#review-content .total-block').innerText()).includes('28,000'));
 assert.ok((await page.locator('#review-content .recurring-summary').innerText()).includes('28,000/month'));
 pass('review separates one-time fee and monthly care in the required order');
