@@ -1,38 +1,31 @@
-# Verification: Select scope → Review quotation → Share PDF
+# Verification: recurring care and reordered pricing
 
-Verified 19 September 2026. No commit, push, deployment, native OS share or WhatsApp message was performed during this revision.
+Verified 19 September 2026. No commit, push, deployment or WhatsApp message was performed during this revision.
 
-## Results
+## Current results
 
-- **42 automated tests passed across 5 files:** pricing 7, dependencies 7, selection validation 6, session security 8, quotation/PDF endpoints 14.
-- **23 browser checks passed:** authentication/privacy, dependency addition/removal/cancellation, draft restoration, five editing widths, validation errors, single review validation, recoverable PDF failure, disabled generation actions, review contents/responsiveness, PDF preview/focus restoration, download filename, fallback sharing, simulated native File sharing, cancellation, native error recovery, back-to-edit and no runtime errors.
-- **Real Netlify Functions:** authenticated quotation preparation returned the trusted total and automatic dependencies; signed PDF generation returned a valid `application/pdf` file. No outbound communication occurred.
-- **PDF QA:** foundation-only 2 pages, dependency/provisional example 2 pages, full selection 4 pages. Rendered pages were visually inspected. Text was extracted successfully; A4 size and text bounds passed. Pagination was refined to keep section headings and the final acknowledgement with their content.
-- Public build succeeded using the allowlisted `dist` assets.
+- **45 automated tests passed across 5 files:** pricing 8, dependencies 7, selection validation 6, session security 8, quotation/PDF endpoints 16.
+- **25 browser checks passed:** the existing selection/review/PDF/share flow plus exact five-section order, all 12 care inclusions, billing/domain clarifications, unchanged one-time foundation price, and separate monthly care in the review summary.
+- All five requested widths (360, 390, 768, 1024 and 1440px) passed overflow checks in editing and review views.
+- Real local Netlify Functions returned the authoritative quotation and generated a signed PDF without outbound sharing.
+- Public asset build succeeded.
 
-Local server for this revision: **http://localhost:8890**. Normal project configuration remains port 8888. Isolated verification used ports 8890/4002/9997 to avoid existing local processes. The CLI's unused Edge runtime was disabled for local testing; production uses standard Node Functions.
+## Pricing boundaries
 
-## Security and correctness checks
+The repository already had a foundation price of **NGN 112,000** before this revision; that price is retained. Earlier test expectations still used the former foundation amount and were corrected to match the existing catalogue. Current tested one-time totals include 112,000 for foundation alone, 207,000 for basket with its required catalogue, 252,000 for training/staff/accounting, and 722,000 for all modules.
 
-The quotation endpoint accepts selected IDs and ignores browser prices, totals, names, validity and dependency results. Unknown modules and invalid recipient formats are rejected. Dependencies are resolved from the trusted catalogue, preserving which modules were explicitly requested.
+Ongoing Website Care & Improvement is **NGN 28,000/month**, separate from every one-time total, beginning 30 days after launch. It is not a selectable one-time module or an unselected optional feature. Tests reject browser attempts to override recurring price and require a fresh review if recurring terms change after token creation.
 
-PDF generation accepts a signed token, not a browser-owned quotation object. Tampering, expiry and changes to the catalogue/recipient after review are rejected. The PDF is reconstructed from exactly the server-validated values, checked using an integrity digest. Both endpoints enforce signed sessions and Origin checks.
+## PDF verification
 
-Tests verify the exact short WhatsApp message and filename; supporting native shares receive a real PDF `File`, MIME type and short message. Unsupported sharing downloads the same file and exposes Open WhatsApp with instructions to attach it manually. Closing/cancelling the simulated native sheet returns to review without a delivery claim.
+Foundation-only: 3 pages. Dependency/provisional example: 3 pages. Full selection: 5 pages. All fixtures passed A4 dimensions, selectable-text extraction and page-bound checks. Text checks verify exact section order, monthly amount, billing start, technical-partnership description, scope limits, domain actual-cost clarification and unchanged one-time fees.
 
-## Browser and device limitations
+Care and quotation-summary pages were rendered and visually inspected for clarity and separation of charges. The mobile care section was also inspected. Artifacts remain under ignored `artifacts/`, including `care-*.png`, `review-*.png`, `generated-quotation.pdf`, and `pdf-qa/`.
 
-The browser suite uses headless Microsoft Edge with simulated `navigator.share`/`canShare`. It verifies application behaviour and payloads, not the operating system's actual UI or WhatsApp delivery. A manual check on the intended phone remains necessary after setting the actual recipient. The native sheet cannot force the app/contact; users select WhatsApp and Alfred themselves. The configured number controls the fallback Open WhatsApp link.
+## Local environment and limitations
 
-PDF preview depends on a browser PDF viewer. Download PDF remains available when inline preview is not supported. PDF text is selectable, rather than a screenshot; this is not a tagged-PDF accessibility certification. No comprehensive screen-reader audit was performed.
+Verification used **http://localhost:8890**, with isolated static/Function ports 4002/9997 and temporary test credentials. Normal project configuration remains localhost:8888. Native sharing is simulated in the browser suite; actual device share-sheet behaviour and WhatsApp delivery remain manual checks. No delivery claim is made by the app.
 
-## Artifacts and operations
+No production deployment or subscription billing is performed. The four existing environment variables remain sufficient. The PDF continues to use selectable standard-font text and ISO `NGN` currency notation. The monthly billing start is relative to launch, not a fabricated calendar date.
 
-- `artifacts/browser-results.json`: browser result list.
-- `artifacts/review-*.png`: review screens at the five required widths.
-- `artifacts/generated-quotation.pdf`: browser download from the real Function during testing.
-- `artifacts/pdf-qa/`: regenerated PDF fixtures, page images and text/bounds checks.
-
-Artifacts use synthetic selections and format-only recipient fixtures. They are ignored by Git and not published. Actual recipient configuration, production hosting and device sharing remain manual handover checks. Quotations are not archived on the server. The existing free Netlify subdomain workflow and four environment variables remain sufficient.
-
-The PDF library installation reported the existing 56 development-tool audit findings. They are not application delivery services; review toolchain updates before production handover and keep the local development server private. The final production dependency audit reported 0 vulnerabilities.
+The previous production audit reported 0 vulnerabilities; the known 56 development-tool findings remain documented from earlier verification. No dependencies changed in this revision and the audit was not rerun.

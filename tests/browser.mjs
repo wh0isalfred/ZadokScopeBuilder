@@ -1,4 +1,4 @@
-﻿import { chromium } from 'playwright';
+import { chromium } from 'playwright';
 import { mkdir, writeFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 const baseURL=process.env.TEST_BASE_URL||'http://localhost:8888';
@@ -12,10 +12,19 @@ await page.goto(baseURL);await page.locator('#access').waitFor();
 assert.equal((await page.request.get('/api/scope-config')).status(),401);assert.equal((await page.request.get('/netlify/functions/lib/catalog.mjs')).status(),404);pass('private catalogue and sources protected');
 await page.locator('#access-code').fill('wrong');await page.locator('#unlock-button').click();await page.getByText('The access code is incorrect. Please try again.').waitFor();
 await page.locator('#access-code').fill('local-test-code');await page.locator('#unlock-button').click();await page.locator('#proposal').waitFor({state:'visible'});pass('real authentication and incorrect-code handling');
+const sectionOrder=['Website Foundation','Core Operational Features','Ongoing Website Care & Improvement','Optional Advancements','Quotation Summary'];
+assert.deepEqual(await page.locator('.scope-content > section h2').allTextContents(),sectionOrder);
+assert.equal(await page.locator('#care-details .care-inclusions li').count(),12);
+assert.ok((await page.locator('#care-details').innerText()).includes('28,000/month'));
+assert.ok((await page.locator('#care-details').innerText()).includes('Billing begins 30 days after launch.'));
+assert.ok((await page.locator('#care-details').innerText()).includes('Domain registration and renewal charges are payable by Zadok Farm at their actual cost.'));
+assert.ok((await page.locator('#desktop-summary .total-block').innerText()).includes('112,000'));
+pass('five-section pricing order and recurring care terms without changing foundation fee');
+
 await page.locator('#select-payments').check();for(const id of ['catalogue','basket','records','staff'])assert.equal(await page.locator(`#select-${id}`).isChecked(),true);pass('automatic transitive dependencies');
 await page.locator('#select-catalogue').click();await page.locator('#cancel-change').click();assert.equal(await page.locator('#select-payments').isChecked(),true);await page.locator('#select-catalogue').click();await page.locator('#confirm-change').click();assert.equal(await page.locator('#select-payments').isChecked(),false);pass('dependency removal cancellation and confirmation');
 await page.locator('#select-training').check();await page.locator('#select-accounting').check();await page.reload();await page.locator('#proposal').waitFor({state:'visible'});assert.equal(await page.locator('#select-training').isChecked(),true);pass('draft restoration');
-for(const width of [360,390,768,1024,1440]){await page.setViewportSize({width,height:900});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));pass(`editing layout ${width}px without overflow`);}
+for(const width of [360,390,768,1024,1440]){await page.setViewportSize({width,height:900});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.locator('#ongoing-care').screenshot({path:`artifacts/care-${width}.png`});pass(`editing layout ${width}px without overflow`);}
 await page.route('**/api/quotation',route=>route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:{code:'SERVER_ERROR',message:'Validation temporarily unavailable.'}})}));
 await page.locator('.summary-panel .review-button').click();await page.getByText('Validation temporarily unavailable.').waitFor();assert.equal(await page.locator('#main').getAttribute('data-state'),'editing');pass('validation failure preserves editable scope');await page.unroute('**/api/quotation');
 let validations=0;page.on('request',req=>{if(new URL(req.url()).pathname==='/api/quotation')validations++;});
@@ -23,6 +32,12 @@ await page.route('**/api/quotation-pdf',route=>route.fulfill({status:503,content
 await page.locator('.summary-panel .review-button').click();await page.locator('#quotation-review').waitFor({state:'visible'});await page.getByText('PDF temporarily unavailable.').waitFor();assert.equal(await page.locator('#share-quote').isDisabled(),true);pass('single review action and recoverable PDF failure');await page.unroute('**/api/quotation-pdf');
 await page.locator('#retry-pdf').click();await page.waitForFunction(()=>document.querySelector('#main').dataset.state==='generating_pdf');assert.equal(await page.locator('#share-quote').isDisabled(),true);await page.waitForFunction(()=>!document.querySelector('#share-quote').disabled);assert.equal(validations,1);pass('generation loading prevents repeat actions without another validation');
 assert.ok((await page.locator('#review-content').innerText()).includes('Automatically included for:'));assert.ok((await page.locator('#review-content').innerText()).includes('Optional modules not selected'));pass('review includes descriptions, dependencies and exclusions');
+assert.deepEqual(await page.locator('#review-content h2').allTextContents(),sectionOrder);
+assert.ok((await page.locator('#review-content .care-section').innerText()).includes('scoped and approved separately before work begins.'));
+assert.ok((await page.locator('#review-content .total-block').innerText()).includes('252,000'));
+assert.ok(!(await page.locator('#review-content .total-block').innerText()).includes('28,000'));
+assert.ok((await page.locator('#review-content .recurring-summary').innerText()).includes('28,000/month'));
+pass('review separates one-time fee and monthly care in the required order');
 for(const width of [360,390,768,1024,1440]){await page.setViewportSize({width,height:900});assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));await page.screenshot({path:`artifacts/review-${width}.png`,fullPage:true});}pass('review responsive at all five widths');
 await page.locator('#preview-pdf').click();await page.locator('#preview-dialog').waitFor({state:'visible'});assert.ok((await page.locator('#pdf-preview').getAttribute('src')).startsWith('blob:'));await page.keyboard.press('Escape');assert.equal(await page.locator('#preview-pdf').evaluate(el=>el===document.activeElement),true);pass('PDF preview, Escape and focus restoration');
 let downloadEvent=page.waitForEvent('download');await page.locator('#quotation-review .download-pdf').click();let download=await downloadEvent;assert.match(download.suggestedFilename(),/^Zadok-Farm-Project-Scope-ZF-\d{8}-[A-F0-9]{16}\.pdf$/);await download.saveAs('artifacts/generated-quotation.pdf');pass('separate Download PDF with exact filename');

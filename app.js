@@ -2,7 +2,7 @@ import { calculate, resolveSelection, removalImpact } from '/shared/dependencies
 const $ = selector => document.querySelector(selector);
 const money = amount => new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 }).format(amount);
 const STORAGE = 'zadok-scope-draft-2026-09-v1';
-let catalog = [], explicit = [], storageWarning = false, confirmAction;
+let catalog = [], recurringService = null, explicit = [], storageWarning = false, confirmAction;
 const node = (tag, text, className) => { const element = document.createElement(tag); if (text !== undefined) element.textContent = text; if (className) element.className = className; return element; };
 function announce(message) { $('#announcement').textContent = message; clearTimeout(announce.timer); announce.timer = setTimeout(() => $('#announcement').textContent = '', 9000); }
 function saveDraft() {
@@ -41,9 +41,9 @@ async function loadConfig(initial = false) {
   $('#access-status').textContent = 'Loading the private proposal…'; $('#retry-config').hidden = true;
   try {
     const data = await api('scope-config');
-    if (!validConfig(data)) throw new Error('The proposal configuration is incomplete. Please retry loading it.');
-    catalog = data.catalog;
-    restoreDraft(); renderModules(); update();
+    if (!validConfig(data) || !validRecurring(data.recurringService)) throw new Error('The proposal configuration is incomplete. Please retry loading it.');
+    catalog = data.catalog; recurringService = data.recurringService;
+    restoreDraft(); renderModules(); renderCare($('#care-details'), recurringService); update();
     $('#access').hidden = true; $('#proposal').hidden = false; $('#access-status').textContent = '';
     $('#proposal-title').focus();
   } catch (error) {
@@ -63,6 +63,16 @@ function inclusionDetails(item) {
   const disclosure = node('details'), summary = node('summary','Full inclusions'), list = node('ul');
   item.inclusions.forEach(text => list.append(node('li',text))); disclosure.append(summary,list);
   return disclosure;
+}
+function validRecurring(service) {
+  return service && typeof service.title === 'string' && Number.isSafeInteger(service.amount) && service.amount >= 0 && service.interval === 'month' && Number.isSafeInteger(service.startsAfterLaunchDays) && service.startsAfterLaunchDays >= 0 && ['description','billingNote','scopeClarification','domainClarification'].every(key => typeof service[key] === 'string') && Array.isArray(service.inclusions) && service.inclusions.every(value => typeof value === 'string');
+}
+function renderCare(container, service) {
+  container.replaceChildren(node('p',`${money(service.amount)}/${service.interval}`,'care-price'),node('p',service.billingNote,'selection-label'),node('p',service.description));
+  const list=node('ul',undefined,'care-inclusions');service.inclusions.forEach(value=>list.append(node('li',value)));container.append(list,node('p',service.scopeClarification,'warning'),node('p',service.domainClarification,'warning'));
+}
+function recurringSummary(service) {
+  const summary=node('div',undefined,'recurring-summary');summary.append(node('p',service.title),node('strong',`${money(service.amount)}/${service.interval}`),node('p',service.billingNote,'small'),node('p','Recurring service, separate from the one-time project fee.','small'));return summary;
 }
 function renderModules() {
   for (const id of ['foundation','launch-modules','addition-modules']) $(`#${id}`).replaceChildren();
@@ -85,7 +95,7 @@ function renderModules() {
 }
 function summaryInto(container, summary) {
   container.replaceChildren();
-  for (const [category,title] of [['foundation','Required foundation · locked'],['launch','Selected launch modules'],['addition','Selected possible additions']]) {
+  for (const [category,title] of [['foundation','Website Foundation'],['launch','Core Operational Features'],['addition','Optional Advancements']]) {
     const group = node('div',undefined,'summary-group'); group.append(node('h3',title));
     const modules = summary.modules.filter(item => item.category === category);
     modules.forEach(item => { const line = node('div',undefined,'summary-item'); line.append(node('span',`${item.title}${item.provisional ? ' (provisional)' : ''}`), node('span',`${item.provisional ? 'From ' : ''}${money(item.price)}`)); group.append(line); });
@@ -94,7 +104,7 @@ function summaryInto(container, summary) {
   }
   const total = node('div',undefined,'total-block'); total.append(node('p','One-time project total'),node('strong',money(summary.total)));
   if (summary.provisional) total.append(node('p','Includes a provisional accounting amount. Final scope and price are subject to review.','small'));
-  container.append(total);
+  container.append(total,recurringSummary(recurringService));
 }
 function update() {
   const summary = calculate(explicit,catalog);
@@ -138,8 +148,9 @@ function renderQuotation(quote) {
   const date = value => new Date(value).toLocaleString('en-GB',{timeZone:'UTC'});
   $('#quote-metadata').replaceChildren(node('p',`Reference: ${quote.reference}`),node('p',`Generated: ${date(quote.timestamp)} UTC`),node('p',`Valid for ${quote.validityDays} days, until ${date(quote.validUntil)} UTC`));
   const content=$('#review-content');content.replaceChildren();
-  for(const [category,label] of [['foundation','Required foundation'],['launch','Selected launch modules'],['addition','Selected possible additions']]) {
+  for(const [category,label] of [['foundation','Website Foundation'],['launch','Core Operational Features'],['care','Ongoing Website Care & Improvement'],['addition','Optional Advancements']]) {
     const section=node('section',undefined,'review-section');section.append(node('h2',label));
+    if(category==='care'){section.classList.add('care-section');const details=node('div');renderCare(details,quote.recurringService);section.append(details);content.append(section);continue;}
     const items=quote.modules.filter(item=>item.category===category);
     if(!items.length)section.append(node('p','None selected.'));
     for(const item of items){
@@ -151,8 +162,9 @@ function renderQuotation(quote) {
     }
     content.append(section);
   }
-  const total=node('div',undefined,'total-block');total.append(node('p','Final project total'),node('strong',money(quote.total)));if(quote.provisional)total.append(node('p','Includes a provisional accounting-platform amount; final scope and price depend on the provider and available API.','small'));content.append(total);
-  const exclusions=node('section',undefined,'quote-exclusions');exclusions.append(node('h2','Optional modules not selected'));
+  const summary=node('section',undefined,'review-summary-section');summary.append(node('h2','Quotation Summary'));
+  const total=node('div',undefined,'total-block');total.append(node('p','One-time project fee'),node('strong',money(quote.total)));if(quote.provisional)total.append(node('p','Includes a provisional accounting-platform amount; final scope and price depend on the provider and available API.','small'));summary.append(total,recurringSummary(quote.recurringService));content.append(summary);
+  const exclusions=node('section',undefined,'quote-exclusions');exclusions.append(node('h3','Optional modules not selected'));
   const list=node('ul');quote.unselectedModules.forEach(item=>list.append(node('li',item.title)));exclusions.append(quote.unselectedModules.length?list:node('p','None; all optional modules are selected.'));content.append(exclusions,node('p',quote.acknowledgement,'review-notice'));
 }
 async function reviewScope(event) {
@@ -160,7 +172,7 @@ async function reviewScope(event) {
   lastReviewButton=event.currentTarget;setState('validating');announce('Validating your selected scope and total...');
   try {
     const result=await api('quotation',{method:'POST',body:JSON.stringify({selectedIds:explicit})});
-    if(!validConfig({catalog:result.modules}) || !Array.isArray(result.automaticIds) || !Array.isArray(result.unselectedModules) || !Number.isSafeInteger(result.total) || typeof result.pdfToken!=='string' || !/^ZF-\d{8}-[A-F0-9]{16}$/.test(result.reference) || !Number.isFinite(Date.parse(result.timestamp)) || !Number.isFinite(Date.parse(result.validUntil)) || !/^https:\/\/wa\.me\/[1-9]\d{7,14}\?text=/.test(result.whatsapp?.url||''))throw new Error('The quotation response could not be read. Please try again.');
+    if(!validConfig({catalog:result.modules}) || !validRecurring(result.recurringService) || !Array.isArray(result.automaticIds) || !Array.isArray(result.unselectedModules) || !Number.isSafeInteger(result.total) || typeof result.pdfToken!=='string' || !/^ZF-\d{8}-[A-F0-9]{16}$/.test(result.reference) || !Number.isFinite(Date.parse(result.timestamp)) || !Number.isFinite(Date.parse(result.validUntil)) || !/^https:\/\/wa\.me\/[1-9]\d{7,14}\?text=/.test(result.whatsapp?.url||''))throw new Error('The quotation response could not be read. Please try again.');
     quotation=result;discardPdf();renderQuotation(result);$('#proposal').hidden=true;showReview();setState('review_ready');announce('Your quotation is ready for review. Nothing has been sent.');await preparePdf();
   }catch(error){setState('editing');announce(error.message);if(error.code==='SESSION_EXPIRED'){$('#proposal').hidden=true;$('#access').hidden=false;$('#access-status').textContent=error.message;$('#access-code').focus();}}
 }

@@ -1,4 +1,4 @@
-﻿import { beforeEach, afterEach, it, expect, vi } from 'vitest';
+import { beforeEach, afterEach, it, expect, vi } from 'vitest';
 import { PDFDocument } from 'pdf-lib';
 import auth from '../netlify/functions/auth.mjs';
 import config from '../netlify/functions/scope-config.mjs';
@@ -12,10 +12,24 @@ beforeEach(()=>{Object.assign(process.env,{SCOPE_SESSION_SECRET:'test-secret-wit
 afterEach(()=>vi.unstubAllGlobals());
 it('protects configuration',async()=>expect((await config(new Request(url))).status).toBe(401));
 it('auth checks origin and code and sets secure cookie',async()=>{expect((await auth(request('auth',{code:'bad'},{origin:'https://other.example'}))).status).toBe(403);expect((await auth(request('auth',{code:'bad'}))).status).toBe(401);expect((await auth(request('auth',{code:'local-test-code'}))).headers.get('set-cookie')).toContain('HttpOnly; Secure; SameSite=Strict');});
-it('validates once and returns authoritative quotation with attributed dependencies',async()=>{const result=await quotation(request('quotation',{selectedIds:['basket'],total:1,price:1,automaticIds:[]}));const quote=await result.json();expect(result.status).toBe(200);expect(quote.total).toBe(240000);expect(quote.automaticIds).toEqual(['catalogue']);expect(quote.unselectedModules).toHaveLength(13);expect(quote.reference).toMatch(/^ZF-\d{8}-[A-F0-9]{16}$/);expect(Date.parse(quote.validUntil)-Date.parse(quote.timestamp)).toBe(30*86400000);expect(fetch).not.toHaveBeenCalled();});
+it('validates once and returns authoritative quotation with attributed dependencies',async()=>{const result=await quotation(request('quotation',{selectedIds:['basket'],total:1,price:1,automaticIds:[]}));const quote=await result.json();expect(result.status).toBe(200);expect(quote.total).toBe(207000);expect(quote.automaticIds).toEqual(['catalogue']);expect(quote.unselectedModules).toHaveLength(13);expect(quote.reference).toMatch(/^ZF-\d{8}-[A-F0-9]{16}$/);expect(Date.parse(quote.validUntil)-Date.parse(quote.timestamp)).toBe(30*86400000);expect(fetch).not.toHaveBeenCalled();});
 it('uses the exact short message without a scope list',()=>{const quote=createQuotation(['basket'],'2348000000000');expect(quote.whatsapp.message).toBe(`Good evening Alfred. I\u2019ve reviewed the proposed Zadok Farm website scope and selected the features we want to proceed with. I\u2019ve attached the generated quotation for your review.\n\nReference: ${quote.reference}`);expect(new URL(quote.whatsapp.url).searchParams.get('text')).toBe(quote.whatsapp.message);expect(quote.filename).toBe(`Zadok-Farm-Project-Scope-${quote.reference}.pdf`);});
 it('generates A4 PDF only from signed quotation, ignores injected total',async()=>{const quote=await (await quotation(request('quotation',{selectedIds:['accounting']}))).json();const response=await pdf(request('quotation-pdf',{pdfToken:quote.pdfToken,total:1,modules:[]}));expect(response.status).toBe(200);expect(response.headers.get('content-type')).toBe('application/pdf');const bytes=await response.arrayBuffer();const doc=await PDFDocument.load(bytes);expect(doc.getPages().length).toBeGreaterThan(0);for(const page of doc.getPages()){expect(page.getWidth()).toBeCloseTo(595.28);expect(page.getHeight()).toBeCloseTo(841.89);}expect(doc.getTitle()).toContain(quote.reference);expect(fetch).not.toHaveBeenCalled();});
 it('rejects altered, expired and missing PDF authorization',async()=>{for(const pdfToken of ['bad',sign({kind:'quotation',iat:0,exp:1})])expect((await pdf(request('pdf',{pdfToken}))).status).toBe(409);expect((await pdf(request('pdf',{total:1}))).status).toBe(409);});
 it('requires a new review when server quote inputs change',async()=>{const quote=await (await quotation(request('quotation',{selectedIds:[]}))).json();process.env.WHATSAPP_RECIPIENT_NUMBER='2348000000001';expect((await pdf(request('pdf',{pdfToken:quote.pdfToken}))).status).toBe(409);});
 it.each(['','+2348000000000','234 8000000000','0123456789','123','1234567890123456'])('rejects invalid recipient %s',async recipient=>{process.env.WHATSAPP_RECIPIENT_NUMBER=recipient;expect((await quotation(request('quote',{selectedIds:[]}))).status).toBe(503);});
 it('checks session, unknown modules and origin',async()=>{expect((await quotation(request('q',{selectedIds:[]},{cookie:''}))).status).toBe(401);expect((await quotation(request('q',{selectedIds:['fake']}))).status).toBe(422);expect((await pdf(request('pdf',{}, {origin:'https://other.example'}))).status).toBe(403);});
+
+it('ignores client-supplied recurring amounts and exposes trusted care after authentication',async()=>{
+ const response=await quotation(request('quote',{selectedIds:[],recurringService:{amount:1,interval:'year'},total:1}));
+ const quote=await response.json();expect(quote.total).toBe(112000);expect(quote.recurringService.amount).toBe(28000);expect(quote.recurringService.interval).toBe('month');
+ const display=await (await config(request('config'))).json();expect(display.recurringService).toEqual(quote.recurringService);
+ expect(quote.recurringService.scopeClarification).toContain('scoped and approved separately before work begins');
+ expect(quote.recurringService.domainClarification).toContain('payable by Zadok Farm at their actual cost');
+});
+it('requires a new review if recurring pricing changes after validation',async()=>{
+ const {ongoingCare}=await import('../netlify/functions/lib/catalog.mjs');
+ const quote=await (await quotation(request('quote',{selectedIds:[]}))).json();
+ const original=ongoingCare.amount;
+ try{ongoingCare.amount=original+1;expect((await pdf(request('pdf',{pdfToken:quote.pdfToken}))).status).toBe(409);}finally{ongoingCare.amount=original;}
+});

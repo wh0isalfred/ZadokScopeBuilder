@@ -1,4 +1,4 @@
-﻿# Zadok Farm scope builder
+# Zadok Farm scope builder
 
 A private, lightweight scope-selection tool. The complete journey is **Select scope → Review quotation → Share quotation**. Nothing is communicated to Alfred from the website. The user decides whether to share the prepared PDF through WhatsApp.
 
@@ -48,6 +48,18 @@ If the CLI stalls downloading its unused Edge/Deno environment, the tested local
 | `WHATSAPP_RECIPIENT_NUMBER` | Alfred's actual international number, digits only, without a plus sign, spaces or punctuation. |
 
 The recipient validator accepts 8–15 digits starting with 1–9. Confirm the actual number with Alfred. Generate a random secret with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Never commit `.env`. Secure cookies require HTTPS in production; modern Chromium browsers support them on localhost for testing.
+
+## Pricing sections and recurring partnership
+
+The builder, quotation review and PDF use this order: **Website Foundation ? Core Operational Features ? Ongoing Website Care & Improvement ? Optional Advancements ? Quotation Summary**. The full Quotation Summary follows the feature sections; the compact mobile bar remains a one-time fee preview.
+
+Ongoing Website Care & Improvement is a standing recurring service in the proposal, **NGN 28,000/month**, with billing beginning **30 days after launch**. Its exact description, 12 inclusions, scope limits and domain-cost clarification are defined once in the `ongoingCare` export in `lib/catalog.mjs`. It is returned only after authentication and included in the signed quotation as `recurringService`.
+
+This service is outside the one-time module catalogue. It does not change `total`, module dependency calculations or selectable module IDs. Quotation Summary separately shows the one-time project fee and the monthly amount. It does not project a start date because the launch date is not yet known. No subscription billing is initiated by this website.
+
+Minor improvements to existing functionality are included. New modules, major features, redesigns and substantial content work require separate scope and approval before work begins. Domain administration/renewal management is included, while domain registration and renewal charges are payable by Zadok Farm at actual cost. This describes care for the planned Zadok platform; the scope builder itself still needs no custom domain or paid hosting add-on.
+
+Changes to recurring-service terms invalidate an already prepared quotation token's integrity check, requiring a fresh review. Update recurring amounts only in the server-owned `ongoingCare` object. The pre-existing foundation price of NGN 112,000 is retained.
 
 ## Journey and state
 

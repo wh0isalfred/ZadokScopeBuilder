@@ -347,3 +347,30 @@ export const catalog = [
   }
 ];
 export const catalogVersion = "2026-09-v1";
+
+// Recurring services are deliberately outside the one-time module catalogue.
+export const ongoingCare = {
+  id: 'ongoing-website-care',
+  title: 'Ongoing Website Care & Improvement',
+  amount: 28000,
+  interval: 'month',
+  startsAfterLaunchDays: 30,
+  billingNote: 'Billing begins 30 days after launch.',
+  description: 'Ongoing technical partnership for the Zadok Farm website. This keeps Alfred available as part of Zadok\u2019s extended digital team to maintain the platform, support staff, manage the domain and continuously improve the website as the farm grows.',
+  inclusions: [
+    'Technical support and troubleshooting',
+    'Website, database and integration monitoring',
+    'Security and dependency updates',
+    'Backups and recovery assistance',
+    'Minor content, product and pricing updates',
+    'Staff-access assistance',
+    'Domain configuration and renewal management',
+    'Deployment and hosting management',
+    'Performance and accessibility checks',
+    'Small improvements to existing functionality',
+    'Advice and planning for future digital improvements',
+    'Priority response when website issues occur',
+  ],
+  scopeClarification: 'Minor improvements to existing functionality are included. New modules, major features, redesigns and substantial content work will be scoped and approved separately before work begins.',
+  domainClarification: 'Domain administration and renewal management are included. Domain registration and renewal charges are payable by Zadok Farm at their actual cost.',
+};
